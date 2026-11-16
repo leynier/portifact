@@ -3,7 +3,7 @@
 // artifact count, every command's success and refusal, and the audit relay. The same services
 // against the real Durable Object run in apps/app's tests through the API.
 import { env } from "cloudflare:test";
-import { PLANS } from "@portifact/contracts";
+import { DATA_OWNER_READS, PLANS } from "@portifact/contracts";
 import { schema } from "@portifact/db";
 import { HELD_MESSAGE } from "@portifact/domain";
 import { MemoryObject } from "@portifact/domain/testing/artifact-data";
@@ -18,9 +18,11 @@ import {
   DATA_AUDIT_DELAY_MS,
   type DataObjects,
   declareDataCollection,
+  deleteAuthorData,
   deleteDataDocument,
   deleteDataDocuments,
   describeArtifactData,
+  eraseArtifactData,
   exportArtifactData,
   getDataDocument,
   lifecycleId,
@@ -986,5 +988,195 @@ describe("owner-side claims", () => {
         now: NOW + ARTIFACT_DATA.horizonMs + 1,
       }),
     ).toMatchObject({ ok: false, code: "invalid_input" });
+  });
+});
+
+describe("owner-side read limit", () => {
+  const actorKey = (id: string) => `data_read:${id}`;
+  const ownerKey = (id: string) => `data_read_owner:${id}`;
+  /** Sets a counter as if `count` requests were counted in a window that started at `start`. */
+  async function counted(key: string, count: number, start = NOW) {
+    await env.DB.prepare(
+      "insert into rate_limits (key, window_start, count) values (?1, ?2, ?3) on conflict (key) do update set window_start = ?2, count = ?3",
+    )
+      .bind(key, start, count)
+      .run();
+  }
+  async function counter(key: string): Promise<number> {
+    const row = await env.DB.prepare("select count from rate_limits where key = ?1")
+      .bind(key)
+      .first<{ count: number }>();
+    return row?.count ?? 0;
+  }
+
+  it("counts each read and export page once per acting account, up to the minute's limit", async () => {
+    const { deps } = harness();
+    const { owner, artifactId } = await ownedArtifact();
+    await declared(deps, owner.id, artifactId);
+    const input = { userId: owner.id, artifactId, now: NOW };
+    // Writes, and the declaration's own description, count nothing.
+    expect(await counter(actorKey(owner.id))).toBe(0);
+    value(await describeArtifactData(db(), deps, input));
+    value(await queryArtifactData(db(), deps, { ...input, query: { collection: "votes" } }));
+    value(await countArtifactData(db(), deps, { ...input, count: { collection: "votes" } }));
+    await getDataDocument(db(), deps, { ...input, collection: "votes", id: "AAAAAAAAAAAAAAAA" });
+    // The first export page asks the object twice (the page and the header) and counts once.
+    value(await exportArtifactData(db(), deps, { ...input, after: null }));
+    expect(await counter(actorKey(owner.id))).toBe(5);
+    expect(await counter(ownerKey(owner.id))).toBe(5);
+
+    await counted(actorKey(owner.id), DATA_OWNER_READS.perActorPerMinute - 1);
+    // The last one the minute admits, then the refusal, which says when to retry.
+    expect((await describeArtifactData(db(), deps, input)).ok).toBe(true);
+    const refused = await describeArtifactData(db(), deps, { ...input, now: NOW + 15_000 });
+    expect(refused).toEqual({
+      ok: false,
+      code: "rate_limited",
+      message: "Too many reads of artifact data. Try again in 45 seconds.",
+      retryAfterSeconds: 45,
+    });
+    expect(
+      await exportArtifactData(db(), deps, { ...input, now: NOW + 15_000, after: null }),
+    ).toMatchObject({ ok: false, code: "rate_limited" });
+    // A caller over its own minute spends nothing of the owner's day.
+    expect(await counter(ownerKey(owner.id))).toBe(6);
+    // The next minute admits it again.
+    expect((await describeArtifactData(db(), deps, { ...input, now: NOW + 60_000 })).ok).toBe(true);
+  });
+
+  it("bounds an owner's reads per day by its plan's data artifacts, whoever reads", async () => {
+    const { deps } = harness();
+    const { owner, artifactId } = await ownedArtifact();
+    const input = { userId: owner.id, artifactId, now: NOW };
+    const free = DATA_OWNER_READS.perDataArtifactPerDay * PLANS.free.data.artifacts;
+    await counted(ownerKey(owner.id), free - 1);
+    expect((await describeArtifactData(db(), deps, input)).ok).toBe(true);
+    const refused = await describeArtifactData(db(), deps, { ...input, now: NOW + 3_600_000 });
+    expect(refused).toEqual({
+      ok: false,
+      code: "rate_limited",
+      message: "This space has used its reads of artifact data for the day. Try again in 23 hours.",
+      retryAfterSeconds: 82_800,
+    });
+    // Pro's ten data artifacts give ten times the reads, from the same counter.
+    await grantPlan(owner.id, "pro");
+    expect(DATA_OWNER_READS.perDataArtifactPerDay * PLANS.pro.data.artifacts).toBe(10_000);
+    expect((await describeArtifactData(db(), deps, { ...input, now: NOW + 3_600_000 })).ok).toBe(
+      true,
+    );
+    // A new day starts the count again.
+    await grantPlan(owner.id, "free");
+    await counted(ownerKey(owner.id), free + 5);
+    expect((await describeArtifactData(db(), deps, { ...input, now: NOW + 86_400_000 })).ok).toBe(
+      true,
+    );
+    expect(await counter(ownerKey(owner.id))).toBe(1);
+  });
+
+  it("keeps a token's minute apart from a person's, and shares the workspace's day", async () => {
+    const { deps } = harness();
+    const admin = await user("Admin");
+    const space = await workspace([[admin.id, "admin"]]);
+    const { artifactId } = await publishSite(admin.id);
+    await db()
+      .update(schema.artifacts)
+      .set({ ownerId: space.id })
+      .where(eq(schema.artifacts.id, artifactId));
+    await grantPlan(space.id, "team");
+    const token = value(
+      await createServiceToken(db().global, {
+        userId: admin.id,
+        slug: space.slug,
+        body: {
+          label: "CI",
+          role: "editor",
+          scopes: ["data:read"],
+          expiresInDays: 30,
+          restriction: { kind: "none" },
+        },
+        now: NOW,
+      }),
+    ).token.id;
+    await counted(actorKey(admin.id), DATA_OWNER_READS.perActorPerMinute);
+    expect(
+      await describeArtifactData(db(), deps, { userId: admin.id, artifactId, now: NOW }),
+    ).toMatchObject({ ok: false, code: "rate_limited" });
+    expect(
+      (await describeArtifactData(db(), deps, { userId: token, artifactId, now: NOW })).ok,
+    ).toBe(true);
+    expect(await counter(actorKey(token))).toBe(1);
+    // The workspace's day, not the admin's personal space's.
+    expect(await counter(ownerKey(space.id))).toBe(1);
+    expect(await counter(ownerKey(admin.id))).toBe(0);
+    await counted(ownerKey(space.id), DATA_OWNER_READS.perDataArtifactPerDay * 50);
+    expect(
+      await describeArtifactData(db(), deps, { userId: token, artifactId, now: NOW }),
+    ).toMatchObject({ ok: false, code: "rate_limited" });
+  });
+
+  it("spends nothing of an owner's reads for someone who may not read them", async () => {
+    const { deps } = harness();
+    const { owner, artifactId } = await ownedArtifact();
+    const stranger = await user("Stranger");
+    expect(
+      await describeArtifactData(db(), deps, { userId: stranger.id, artifactId, now: NOW }),
+    ).toMatchObject({ ok: false, code: "not_found" });
+    expect(await counter(ownerKey(owner.id))).toBe(0);
+    expect(await counter(actorKey(stranger.id))).toBe(0);
+  });
+
+  it("never stops changes, deletes, an author's deletion or the owner's erase", async () => {
+    const { deps } = harness();
+    const { owner, artifactId } = await ownedArtifact();
+    const input = { userId: owner.id, artifactId, now: NOW };
+    await counted(actorKey(owner.id), DATA_OWNER_READS.perActorPerMinute);
+    await counted(ownerKey(owner.id), DATA_OWNER_READS.perDataArtifactPerDay);
+    expect(await describeArtifactData(db(), deps, input)).toMatchObject({ code: "rate_limited" });
+    await declared(deps, owner.id, artifactId);
+    const doc = value(
+      await createDataDocument(db(), deps, {
+        ...input,
+        idempotencyKey: key(),
+        collection: "votes",
+        body: { choice: "a" },
+      }),
+    );
+    // A replayed write answers the document as it is now, with no read counted.
+    const again = key();
+    const write = {
+      ...input,
+      idempotencyKey: again,
+      collection: "votes",
+      id: doc._id,
+      body: { choice: "b" },
+    };
+    value(await replaceDataDocument(db(), deps, write));
+    expect(value(await replaceDataDocument(db(), deps, write))).toMatchObject({ choice: "b" });
+    value(
+      await createDataDocument(db(), deps, {
+        ...input,
+        idempotencyKey: key(),
+        collection: "votes",
+        body: { choice: "c" },
+      }),
+    );
+    value(
+      await deleteDataDocument(db(), deps, {
+        ...input,
+        idempotencyKey: key(),
+        collection: "votes",
+        id: doc._id,
+      }),
+    );
+    expect(
+      value(
+        await deleteAuthorData(db(), deps, { ...input, idempotencyKey: key(), author: "owner" }),
+      ),
+    ).toEqual({ removed: 1, more: false });
+    expect(
+      value(await eraseArtifactData(db(), deps, { ...input, idempotencyKey: key() })),
+    ).toMatchObject({ erased: true });
+    expect(await counter(actorKey(owner.id))).toBe(DATA_OWNER_READS.perActorPerMinute + 1);
+    expect(await counter(ownerKey(owner.id))).toBe(DATA_OWNER_READS.perDataArtifactPerDay);
   });
 });

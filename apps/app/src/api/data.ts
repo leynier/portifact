@@ -69,10 +69,18 @@ function writersDeps(env: Env) {
   return { enabled: env.ARTIFACT_DATA_ENABLED === "true" };
 }
 
-type Result<T> = { ok: true; value: T } | { ok: false; code: ErrorCode; message: string };
+type Result<T> =
+  | { ok: true; value: T }
+  | { ok: false; code: ErrorCode; message: string; retryAfterSeconds?: number };
 
+/** The answer, or the error; a read over its limit also says when to retry (`Retry-After`). */
 function answer<T>(c: ApiContext, result: Result<T>, status: 200 | 201 = 200) {
-  if (!result.ok) return error(c, result.code, result.message);
+  if (!result.ok) {
+    if (result.retryAfterSeconds !== undefined) {
+      c.header("Retry-After", String(result.retryAfterSeconds));
+    }
+    return error(c, result.code, result.message);
+  }
   return c.json(result.value as object, status);
 }
 
