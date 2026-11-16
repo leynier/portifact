@@ -91,6 +91,7 @@ import {
   noPendingReads,
   OPERATION_ROW_BOUNDS,
   outbound,
+  ownOriginHandshake,
   pageOf,
   parseExportFile,
   passLeftMore,
@@ -1872,6 +1873,33 @@ describe("journal and grants", () => {
         true,
       ),
     ).toBe("refused");
+  });
+
+  it("reads only Chrome's handshake from the artifact's own origin as its own page's", () => {
+    // The live route lets such a handshake use the read, review and link sessions as a
+    // same-origin request would (production, 2026-11-16: restricted artifacts refused Chrome).
+    const h = (values: Record<string, string>) => new Headers(values);
+    const origin = "https://abcdefgh23.portifact.dev";
+    const chrome = { Upgrade: "websocket", Origin: origin };
+    expect(ownOriginHandshake("GET", h(chrome), origin)).toBe(true);
+    expect(ownOriginHandshake("GET", h({ ...chrome, Upgrade: "WebSocket" }), origin)).toBe(true);
+    for (const other of [
+      "https://zzzzzzzz23.portifact.dev",
+      "https://evil.example",
+      "http://abcdefgh23.portifact.dev",
+      `${origin}/`,
+      "null",
+    ]) {
+      expect(ownOriginHandshake("GET", h({ ...chrome, Origin: other }), origin)).toBe(false);
+    }
+    expect(ownOriginHandshake("GET", h({ Upgrade: "websocket" }), origin)).toBe(false);
+    expect(ownOriginHandshake("POST", h(chrome), origin)).toBe(false);
+    expect(ownOriginHandshake("GET", h({ Origin: origin }), origin)).toBe(false);
+    expect(ownOriginHandshake("GET", h({ ...chrome, Upgrade: "h2c" }), origin)).toBe(false);
+    // Fetch metadata that is present is judged by the usual checks, never by this one.
+    for (const name of ["Sec-Fetch-Site", "Sec-Fetch-Mode", "Sec-Fetch-Dest"]) {
+      expect(ownOriginHandshake("GET", h({ ...chrome, [name]: "websocket" }), origin)).toBe(false);
+    }
   });
 
   it("gates the API, the start and the redemption by fetch metadata", () => {
