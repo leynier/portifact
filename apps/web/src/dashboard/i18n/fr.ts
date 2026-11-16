@@ -102,6 +102,8 @@ export const fr = {
   "dataGrant.ownerWorkspace": "Publié par l'espace de travail {name}",
   "dataGrant.learns":
     "La page vous connaîtra sous le nom {name}, avec un identifiant propre à cet artifact. Elle ne connaît jamais votre e-mail.",
+  "dataGrant.learnsNoName":
+    "La page ne vous connaîtra que par un identifiant propre à cet artifact, sans nom, car votre compte n'en a pas. Elle ne connaît jamais votre e-mail.",
   "dataGrant.managers":
     "Les personnes qui gèrent cet artifact peuvent lire tout ce qui y est enregistré.",
   "dataGrant.moves": "Si l'artifact change de propriétaire, ce que vous avez enregistré le suit.",

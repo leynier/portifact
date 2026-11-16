@@ -95,6 +95,8 @@ export const ptBR = {
   "dataGrant.ownerWorkspace": "Publicado pelo espaço de trabalho {name}",
   "dataGrant.learns":
     "A página vai conhecer você como {name}, com um ID só para este artifact. Ela nunca sabe seu e-mail.",
+  "dataGrant.learnsNoName":
+    "A página vai conhecer você só por um ID para este artifact, sem nome, porque sua conta não tem um. Ela nunca sabe seu e-mail.",
   "dataGrant.managers":
     "As pessoas que gerenciam este artifact podem ler tudo o que for salvo ali.",
   "dataGrant.moves": "Se o artifact passar para outro dono, o que você salvou vai junto.",
