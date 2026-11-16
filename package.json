@@ -23,7 +23,7 @@
       "axe-core": "^4.10.0",
       "css-tree": "^3.1.0",
       "happy-dom": "^21.0.4",
-      "lucide-react": "^1.69.0",
+      "lucide-react": "^1.72.0",
       "react": "^19.0.0",
       "react-dom": "^19.0.0",
       "typescript": "^7.0.0",
@@ -53,14 +53,14 @@
     "build": "turbo run build"
   },
   "devDependencies": {
-    "@biomejs/biome": "^2.0.0",
+    "@biomejs/biome": "^2.6.7",
     "@semantic-release/exec": "^7.0.0",
     "@semantic-release/git": "^11.0.0",
     "@types/bun": "^1.0.0",
     "@types/node": "catalog:",
     "conventional-changelog-conventionalcommits": "^9.3.1",
     "semantic-release": "^25.0.0",
-    "turbo": "^2.0.0",
+    "turbo": "^2.11.11",
     "typescript": "catalog:"
   }
 }

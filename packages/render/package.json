@@ -41,7 +41,7 @@
     "@vitest/coverage-istanbul": "catalog:",
     "fast-check": "^4.0.0",
     "happy-dom": "catalog:",
-    "parse5": "^8.1.0",
+    "parse5": "^8.1.1",
     "typescript": "catalog:",
     "vitest": "catalog:"
   }

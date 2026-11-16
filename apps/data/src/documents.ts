@@ -451,14 +451,27 @@ export class ArtifactDocuments extends DurableObject<Env> {
   }
 
   override async webSocketMessage(socket: WebSocket, message: string | ArrayBuffer): Promise<void> {
-    const [socketId] = this.ctx.getTags(socket);
+    const socketId = this.#socketId(socket);
     if (socketId === undefined) return;
     const text = typeof message === "string" ? message : new TextDecoder().decode(message);
     this.store.message(socketId, text, Date.now());
   }
 
   override async webSocketClose(socket: WebSocket, code: number): Promise<void> {
-    const [socketId] = this.ctx.getTags(socket);
+    const socketId = this.#socketId(socket);
     if (socketId !== undefined) this.store.closed(socketId, code);
+  }
+
+  /**
+   * The connection a socket carries, from the tag it was accepted with. The runtime may deliver an
+   * event for a socket it no longer tracks (a client end collected after the object closed the
+   * server end), and `getTags` throws for it: such a socket is none of this object's connections.
+   */
+  #socketId(socket: WebSocket): string | undefined {
+    try {
+      return this.ctx.getTags(socket)[0];
+    } catch {
+      return undefined;
+    }
   }
 }
