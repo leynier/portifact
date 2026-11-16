@@ -83,7 +83,12 @@ export function ConsentControl({
       </h2>
       <p className="text-sm text-text-muted">{owner}</p>
       <ul className="flex list-disc flex-col gap-2 pl-5 text-sm">
-        <li>{t("dataGrant.learns", { name: control.displayName })}</li>
+        <li>
+          {/* An account may have no display name: never show "know you as ," then. */}
+          {control.displayName.trim() === ""
+            ? t("dataGrant.learnsNoName")
+            : t("dataGrant.learns", { name: control.displayName })}
+        </li>
         <li>{t("dataGrant.managers")}</li>
         <li>{t("dataGrant.moves")}</li>
         <li>{t("dataGrant.deletion")}</li>

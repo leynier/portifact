@@ -95,6 +95,8 @@ export const ja = {
   "dataGrant.ownerWorkspace": "ワークスペース {name} が公開",
   "dataGrant.learns":
     "ページはあなたを {name} として、この artifact 専用の ID で認識します。メールアドレスが伝わることはありません。",
+  "dataGrant.learnsNoName":
+    "アカウントに名前がないため、ページはあなたを名前なしで、この artifact 専用の ID だけで認識します。メールアドレスが伝わることはありません。",
   "dataGrant.managers": "この artifact を管理する人は、保存された内容をすべて読めます。",
   "dataGrant.moves": "artifact の所有者が変わると、保存した内容も一緒に移ります。",
   "dataGrant.deletion":

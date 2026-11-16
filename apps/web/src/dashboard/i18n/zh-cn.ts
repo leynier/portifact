@@ -87,6 +87,8 @@ export const zhCN = {
   "dataGrant.ownerWorkspace": "由工作区 {name} 发布",
   "dataGrant.learns":
     "该页面会以 {name} 识别你，并使用仅限此 artifact 的 ID。它永远不会知道你的邮箱。",
+  "dataGrant.learnsNoName":
+    "由于你的账户没有名字，该页面只会通过仅限此 artifact 的 ID 识别你，不带名字。它永远不会知道你的邮箱。",
   "dataGrant.managers": "管理此 artifact 的人可以读取保存在其中的所有内容。",
   "dataGrant.moves": "如果 artifact 转给其他所有者，你保存的内容会随之转移。",
   "dataGrant.deletion":
