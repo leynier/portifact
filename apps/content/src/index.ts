@@ -60,7 +60,7 @@ import {
 import { type LogOpening, OpeningLog } from "./access-log.ts";
 import { type BudgetEnv, overTrafficLimit } from "./budget.ts";
 import { hintAgrees, isolateHosts, resolveCustomHost } from "./custom-hosts.ts";
-import { type DataContext, handleData, isDataPath } from "./data.ts";
+import { type DataContext, handleData, isDataPath, sessionRequest } from "./data.ts";
 import { StorageReports } from "./data-storage.ts";
 import { DIAGRAM_VERSION, diagramScript, isDiagramPath } from "./diagrams.ts";
 import { deliveryRegion, lookupDelivery } from "./directory.ts";
@@ -582,6 +582,7 @@ function dataContext(routing: DataRouting): DataContext {
     now,
     objects: dataNamespaces(env, routing.region),
     async read(freshWithin = 0) {
+      const request = sessionRequest(routing.request);
       const found =
         resolved === undefined ? await lookupDelivery(regions, db, id, cycle.start, now) : resolved;
       const artifact = found && isServable(found, now) ? found : null;

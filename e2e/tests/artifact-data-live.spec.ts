@@ -2,7 +2,9 @@
 // Chrome opens a WebSocket with `Origin` and no `Sec-Fetch-*` header, Firefox with
 // `Sec-Fetch-Site: same-origin`: the handshake is let in either way from the artifact's own
 // origin, and refused from any other, with or without fetch metadata (the production
-// commissioning of 2026-11-16 found every Chrome connection refused).
+// commissioning of 2026-11-16 found every Chrome connection refused). On a restricted artifact
+// the reader's read session must be used for Chrome's handshake exactly as for Firefox's (the
+// second run of that day found Chrome refused there).
 import type { Page } from "@playwright/test";
 import {
   contentRequests,
@@ -12,6 +14,7 @@ import {
   publish,
   signIn,
   test,
+  type User,
 } from "../src/fixtures.ts";
 import { APP_ORIGIN, artifactOrigin } from "../src/hosts.ts";
 import { DROP_FETCH_METADATA } from "../src/stack.ts";
@@ -39,12 +42,14 @@ window.portifact.data.me().then((me) => {
 </script></main></body></html>`,
 };
 
-async function board() {
+/** A board with a shared `notes` collection, public or restricted to one reader. */
+async function board(reader?: User) {
   const owner = await createUser("Owner");
   const published = await publish({
     ownerId: owner.userId,
     name: "Board",
-    accessMode: "public",
+    accessMode: reader === undefined ? "public" : "restricted",
+    ...(reader === undefined ? {} : { readers: [reader.email] }),
     bar: false,
     files: SITE,
   });
@@ -131,6 +136,59 @@ test("another artifact's page cannot open the live connection, with or without f
 }) => {
   const target = await board();
   const sibling = await board();
+  await page.goto(`${artifactOrigin(sibling)}/`);
+  await expect(page.locator("#state")).toHaveText("not granted");
+  for (const drop of [false, true]) {
+    const ended = await page.evaluate((url) => window.board.handshake(url), liveUrl(target, drop));
+    expect(ended).toMatch(/^closed:/);
+  }
+  const refused = await handshakes(target);
+  expect(refused.map((request) => request.status)).toEqual([403, 403]);
+  expect(refused[1]?.site).toBeNull();
+});
+
+test("a restricted artifact's reader connects in every engine, Chrome's handshake included", async ({
+  page,
+  context,
+}) => {
+  const reader = await createUser("Reader");
+  const artifactId = await board(reader);
+  await signIn(context, reader);
+  // The visit signs in through the app and comes back with the read session.
+  await grantOnThePage(page, artifactId);
+
+  const [socket] = await Promise.all([
+    page.waitForEvent("websocket"),
+    page.evaluate(() => window.board.follow()),
+  ]);
+  await socket.waitForEvent("framesent", (frame) => String(frame.payload).includes("subscribe"));
+  expect(await page.evaluate(() => window.board.post("hello"))).toMatchObject({ ok: true });
+  await expect
+    .poll(() => page.evaluate(() => window.changes))
+    .toContainEqual(expect.objectContaining({ collection: "notes", kind: "created" }));
+
+  // Chrome's handshake (no fetch metadata) in every engine, from the artifact's own page.
+  const first = await page.evaluate(
+    (url) => window.board.handshake(url),
+    liveUrl(artifactId, true),
+  );
+  expect(JSON.parse(first)).toMatchObject({ connected: expect.any(String) });
+  const seen = await handshakes(artifactId);
+  expect(seen.map((request) => request.status)).toEqual([101, 101]);
+  expect(seen[1]).toMatchObject({ site: null, mode: null, dest: null });
+});
+
+test("another artifact's page cannot use a reader's session for the live connection", async ({
+  page,
+  context,
+}) => {
+  const reader = await createUser("Reader");
+  const target = await board(reader);
+  const sibling = await board();
+  await signIn(context, reader);
+  // The reader holds a read session for the target, which the sibling's handshakes would carry.
+  await page.goto(`${artifactOrigin(target)}/`);
+  await expect(page.locator("#state")).toHaveText("not granted");
   await page.goto(`${artifactOrigin(sibling)}/`);
   await expect(page.locator("#state")).toHaveText("not granted");
   for (const drop of [false, true]) {

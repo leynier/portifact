@@ -39,7 +39,12 @@ import {
   type StorageReport,
 } from "@portifact/contracts/artifact-data";
 import type { RegionalDb } from "@portifact/db";
-import { apiGate, beginGate, redeemGate } from "@portifact/domain/artifact-data";
+import {
+  apiGate,
+  beginGate,
+  ownOriginHandshake,
+  redeemGate,
+} from "@portifact/domain/artifact-data";
 import {
   type DataObjects,
   dataAnonymousEnabled,
@@ -79,6 +84,27 @@ export interface DataEnv {
   DATA_PAGE_WRITES_ENABLED?: string | undefined;
   /** Exactly `"true"` redeems and renews anonymous grants (delivery 9); off, they end. */
   DATA_ANONYMOUS_ENABLED?: string | undefined;
+}
+
+/** The live route, a WebSocket upgrade. */
+const LIVE_PATH = `${DATA_PREFIX}live`;
+
+/**
+ * The request the reading authorization sees. Chrome opens a WebSocket with `Origin` and no fetch
+ * metadata, which the read, review and link sessions refuse; on the live route only, a handshake
+ * whose `Origin` is exactly the host being served (`ownOriginHandshake`) is read as the
+ * `same-origin` handshake Firefox sends for that page, so each session is used exactly as for the
+ * artifact's own requests. A sibling artifact or another site cannot set `Origin` to this host.
+ */
+export function sessionRequest(request: Request): Request {
+  const url = new URL(request.url);
+  if (url.pathname !== LIVE_PATH) return request;
+  if (!ownOriginHandshake(request.method, request.headers, url.origin)) return request;
+  const headers = new Headers(request.headers);
+  headers.set("Sec-Fetch-Site", "same-origin");
+  headers.set("Sec-Fetch-Mode", "websocket");
+  headers.set("Sec-Fetch-Dest", "websocket");
+  return new Request(request.url, { method: "GET", headers });
 }
 
 /** Whether a path is one of the data routes (routed before the `GET`/`HEAD` check). */
