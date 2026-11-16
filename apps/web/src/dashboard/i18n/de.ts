@@ -99,6 +99,8 @@ export const de = {
   "dataGrant.ownerWorkspace": "Veröffentlicht vom Workspace {name}",
   "dataGrant.learns":
     "Die Seite kennt dich als {name}, mit einer ID nur für dieses Artifact. Deine E-Mail-Adresse erfährt sie nie.",
+  "dataGrant.learnsNoName":
+    "Die Seite kennt dich nur über eine ID für dieses Artifact, ohne Namen, weil dein Konto keinen hat. Deine E-Mail-Adresse erfährt sie nie.",
   "dataGrant.managers":
     "Die Personen, die dieses Artifact verwalten, können alles lesen, was dort gespeichert wird.",
   "dataGrant.moves": "Wechselt das Artifact den Eigentümer, wandert das Gespeicherte mit.",

@@ -76,6 +76,21 @@ describe("the consent control page", () => {
     });
   });
 
+  it("says the page knows only an ID when the account has no display name", async () => {
+    const server = fakeServer();
+    server.dataGrantControls[ID] = { ...CONTROL, displayName: "  " };
+    renderDashboard(`/data/grant?artifact=${ID}&nonce=${NONCE}`, server);
+    const heading = await screen.findByRole("heading", {
+      name: `Let ${HOST} save what you enter?`,
+    });
+    const control = heading.closest("section") as HTMLElement;
+    expect(
+      within(control).getByText(/know you only by an ID for this artifact, with no name/),
+    ).toBeTruthy();
+    expect(within(control).queryByText(/know you as/)).toBeNull();
+    expect(within(control).getByText(/never learns your email/)).toBeTruthy();
+  });
+
   it("returns to the artifact on Not now, without asking for a code", async () => {
     const server = fakeServer();
     server.dataGrantControls[ID] = CONTROL;
