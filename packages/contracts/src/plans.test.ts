@@ -90,6 +90,10 @@ describe("artifact data in PLANS", () => {
     const sizes = PLAN_NAMES.map((plan) => PLANS[plan].data.perArtifact.bytesPerArtifact);
     expect(sizes).toEqual([5_000_000, 25_000_000, 50_000_000, 50_000_000]);
     expect(PLAN_NAMES.map((plan) => PLANS[plan].data.artifacts)).toEqual([1, 10, 50, 50]);
+    // Delivery 8's measurements lowered Pro's growth so its worst month stays under its price.
+    expect(PLAN_NAMES.map((plan) => PLANS[plan].data.perArtifact.rowsWrittenPerDay)).toEqual([
+      5_000, 1_500, 2_000, 2_000,
+    ]);
     for (const plan of PLAN_NAMES) {
       const limits = PLANS[plan].data.perArtifact;
       // Decision 0026's arithmetic: cleanup equals growth, export is 40 times growth.

@@ -150,7 +150,7 @@ describe("entitlements", () => {
     });
   });
 
-  it("grants artifact data per plan: decision 0026's option B, Enterprise as Team", () => {
+  it("grants artifact data per plan: decision 0026's option B as delivery 8 fixed it, Enterprise as Team", () => {
     const data = (plan: PlanName) => {
       const { artifacts, perArtifact } = entitlements(row({ plan }), NOW).data;
       return [
@@ -163,7 +163,7 @@ describe("entitlements", () => {
     };
     expect(entitlements(null, NOW).data.artifacts).toBe(1);
     expect(data("free")).toEqual([1, 5_000_000, 5_000, 500_000, 2_000]);
-    expect(data("pro")).toEqual([10, 25_000_000, 2_000, 500_000, 5_000]);
+    expect(data("pro")).toEqual([10, 25_000_000, 1_500, 500_000, 5_000]);
     expect(data("team")).toEqual([50, 50_000_000, 2_000, 1_000_000, 10_000]);
     expect(data("enterprise")).toEqual(data("team"));
     // Not per seat: a larger team gets no more data artifacts.

@@ -130,9 +130,9 @@ describe("planComparison", () => {
     }
   });
 
-  it("shows artifact data from PLANS as coming soon", () => {
+  it("shows artifact data from PLANS as included", () => {
     const data = planComparison("en", en).at(-1);
-    expect(data?.label).toBe("Artifacts with app data (Coming soon)");
+    expect(data?.label).toBe("Artifacts with app data");
     expect(data?.cells.map((cell) => cell.value)).toEqual([
       "1 × 5 MB",
       "10 × 25 MB",

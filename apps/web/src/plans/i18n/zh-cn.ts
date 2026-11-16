@@ -32,7 +32,6 @@ export const planTextZhCN = {
   "plans.limit.annotationMessages": "评论",
   "plans.value.versions": "{count} 个，保留 {duration}",
   "plans.limit.artifactData": "含应用数据的 artifact",
-  "plans.limit.withSoon": "{label}（{soon}）",
   "plans.value.artifactData": "{count} × {size}",
   "plans.feature.pin": "固定 artifact",
   "plans.feature.versionDiff": "比较版本",

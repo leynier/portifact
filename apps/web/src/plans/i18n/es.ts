@@ -32,7 +32,6 @@ export const planTextEs = {
   "plans.limit.annotationMessages": "Comentarios",
   "plans.value.versions": "{count} durante {duration}",
   "plans.limit.artifactData": "Artifacts con datos de app",
-  "plans.limit.withSoon": "{label} ({soon})",
   "plans.value.artifactData": "{count} × {size}",
   "plans.feature.pin": "Fijar artifacts",
   "plans.feature.versionDiff": "Comparar versiones",

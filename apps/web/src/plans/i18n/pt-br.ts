@@ -32,7 +32,6 @@ export const planTextPtBR = {
   "plans.limit.annotationMessages": "Comentários",
   "plans.value.versions": "{count} por {duration}",
   "plans.limit.artifactData": "Artifacts com dados de app",
-  "plans.limit.withSoon": "{label} ({soon})",
   "plans.value.artifactData": "{count} × {size}",
   "plans.feature.pin": "Fixar artifacts",
   "plans.feature.versionDiff": "Comparar versões",
