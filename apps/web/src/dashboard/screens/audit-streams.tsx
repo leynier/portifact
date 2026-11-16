@@ -70,6 +70,11 @@ export function verify(secret, headers, body) {
     const candidate = Buffer.from(given);
     return candidate.length === expected.length && timingSafeEqual(candidate, expected);
   });
+}
+
+// Then read the events: one JSON value per line (JSON Lines), never the whole body as one.
+export function readLines(body) {
+  return body.split("\\n").filter((line) => line !== "").map((line) => JSON.parse(line));
 }`;
 
 interface Revealed {

@@ -663,6 +663,14 @@ describe("delivering", () => {
     ],
     ["network" as const, null, "unreachable", AUDIT_STREAM.retryDelaysMs[0]],
     ["certificate" as const, null, "certificate", AUDIT_STREAM.retryDelaysMs[0]],
+    // Cloudflare's answers to a Worker's fetch when the endpoint's TLS fails.
+    [new Response("bad cert", { status: 526 }), null, "certificate", AUDIT_STREAM.retryDelaysMs[0]],
+    [
+      new Response("handshake", { status: 525 }),
+      null,
+      "certificate",
+      AUDIT_STREAM.retryDelaysMs[0],
+    ],
   ])(
     "records %s as a failure the admin can read, never its body",
     async (reply, cls, error, delay) => {

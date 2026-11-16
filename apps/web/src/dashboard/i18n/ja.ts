@@ -1696,6 +1696,7 @@ export const ja = {
   "webhooks.deliveries.outcome": "結果",
   "webhooks.error.timeout": "タイムアウト",
   "webhooks.error.network": "接続なし",
+  "webhooks.error.certificate": "証明書が受け入れられません",
   "webhooks.error.redirect": "リダイレクト (追従せず)",
   "webhooks.error.invalid_url": "許可されていないURL",
   "webhooks.error.daily_cap": "1日の上限に到達",
@@ -3212,7 +3213,7 @@ export const ja = {
     "古いシークレットは 24 時間、新しいシークレットと並んで署名し続けるため、リクエストを失わずにエンドポイントを切り替えられます。",
   "audit.stream.verify.title": "各リクエストを確認する",
   "audit.stream.verify.body":
-    "各リクエストには webhook-id、webhook-timestamp、webhook-signature が付きます。Portifact の Webhook と同じ方式です。未加工の本文で署名を再計算し、5 分以上ずれたタイムスタンプは拒否し、保存済みの ID のイベントはスキップしてください。record フィールドのある行はイベントではなく、欠落の通知かテストです。",
+    "各リクエストには webhook-id、webhook-timestamp、webhook-signature が付きます。Portifact の Webhook と同じ方式です。未加工の本文で署名を再計算し、5 分以上ずれたタイムスタンプは拒否し、保存済みの ID のイベントはスキップしてください。record フィールドのある行はイベントではなく、欠落の通知かテストです。本文を 1 つの JSON 値として読む検証器（standardwebhooks ライブラリの verify() など）は、署名が正しくても 2 行以上のリクエストで例外を投げます。サンプルのように未加工の本文で署名を確認してから、本文を 1 行ずつ読んでください。",
   "audit.stream.verify.sample": "Node.js での署名の確認",
   "audit.stream.state.active": "有効",
   "audit.stream.state.paused": "一時停止中",

@@ -10,6 +10,7 @@ import {
   type AuditStreamTestRecord,
 } from "@portifact/contracts";
 import { auditPruneCutoff } from "./audit.ts";
+import { isCertificateStatus } from "./webhooks.ts";
 
 /**
  * Where a stream stands in one database: the time and ID of the last event it delivered, in the
@@ -191,7 +192,10 @@ export function parseRetryAfter(value: string | null | undefined, now: number): 
   return Math.min(Math.max(delay, AUDIT_STREAM.retryAfterMinMs), AUDIT_STREAM.retryAfterMaxMs);
 }
 
-/** A network error whose message names TLS: the endpoint's certificate did not pass. */
+/**
+ * A network error whose message names TLS: the endpoint's certificate did not pass. A Worker's
+ * `fetch` usually gets Cloudflare's 525 or 526 answer instead (`isCertificateStatus`).
+ */
 const CERTIFICATE = /certificate|ssl|tls|handshake/i;
 
 /** Classifies one request: only a 2xx delivers; any 3xx is a redirect, never followed. */
@@ -202,6 +206,10 @@ export function classifyStreamAttempt(result: StreamAttemptResult, now: number):
   if (result.kind === "network") {
     const error = CERTIFICATE.test(result.message ?? "") ? "certificate" : "unreachable";
     return { delivered: false, statusClass: null, error, retryAfterMs: null };
+  }
+  // Cloudflare's 525 and 526 stand for a TLS failure: no answer from the endpoint.
+  if (isCertificateStatus(result.status)) {
+    return { delivered: false, statusClass: null, error: "certificate", retryAfterMs: null };
   }
   const cls = statusClass(result.status);
   if (cls === "2xx") return { delivered: true, statusClass: cls, error: null, retryAfterMs: null };

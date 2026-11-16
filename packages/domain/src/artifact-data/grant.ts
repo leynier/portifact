@@ -10,15 +10,20 @@ export interface HeaderSource {
 
 /**
  * The API gate: `Sec-Fetch-Site: same-origin` always; the exact origin on writes and WebSocket
- * handshakes; JSON on writes. No fetch metadata fails closed.
+ * handshakes; JSON on writes. No fetch metadata fails closed, except on a WebSocket handshake
+ * (a read), which Chrome sends with `Origin` and no `Sec-Fetch-*` header: there the exact origin
+ * alone decides, since a browser always sends `Origin` on a handshake and a page cannot set it.
+ * Fetch metadata that is present must still say `same-origin`.
  */
 export function apiGate(
   headers: HeaderSource,
   origin: string,
   write: boolean,
 ): "allowed" | "refused" {
-  if (headers.get("Sec-Fetch-Site") !== "same-origin") return "refused";
   const upgrade = headers.get("Upgrade")?.toLowerCase() === "websocket";
+  const site = headers.get("Sec-Fetch-Site");
+  const handshakeWithoutMetadata = upgrade && !write && site === null;
+  if (site !== "same-origin" && !handshakeWithoutMetadata) return "refused";
   if ((write || upgrade) && headers.get("Origin") !== origin) return "refused";
   if (write && !headers.get("Content-Type")?.toLowerCase().startsWith("application/json")) {
     return "refused";
