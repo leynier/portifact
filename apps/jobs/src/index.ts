@@ -226,21 +226,28 @@ export async function runScheduled(
   }
   // A queue outage must not stop the reconciliation; unsent rows stay pending for the next run.
   const relayed = options.relay === false ? "scheduled" : await runRelay(env, now);
-  // Webhooks sealed with `WEBHOOK_KEY_PREVIOUS` move to the current key (docs/releasing.md).
-  // Switched off: no webhook stays enabled, so writes record no events (decision 0009).
-  const webhooksStopped = webhooksEnabled(env) ? 0 : await stopWebhooksWhileOff(db, now);
+  // Webhooks live in their owner's region, so both steps run in every region. Switched off: no
+  // webhook stays enabled, so writes record no events (decision 0009). Webhooks sealed with
+  // `WEBHOOK_KEY_PREVIOUS` move to the current key (docs/releasing.md).
   const keys = await webhookKeys({ current: env.WEBHOOK_KEY, previous: env.WEBHOOK_KEY_PREVIOUS });
-  const webhookKeyRotation = await rewrapWebhookKeys(db, keys);
+  let webhooksStopped = 0;
+  const webhookKeyRotation = { rewrapped: 0, left: 0 };
+  for (const handles of regions.all()) {
+    if (!webhooksEnabled(env)) webhooksStopped += await stopWebhooksWhileOff(handles.db, now);
+    const rotated = await rewrapWebhookKeys(handles.db, keys);
+    webhookKeyRotation.rewrapped += rotated.rewrapped;
+    webhookKeyRotation.left += rotated.left;
+  }
   // Audit streams (decision 0019), in every region: re-sealed with the current key like webhooks,
-  // and, only while streams are switched on, the log pruned and lost jobs given back (two D1
-  // calls per region, whatever the number of owners).
+  // the delivery log pruned whether or not streams are switched on (its 7 days hold while they
+  // are off), and, only while they are on, lost jobs given back (two D1 calls per region,
+  // whatever the number of owners).
   const auditStreams = { prunedDeliveries: 0, armed: 0, keysRewrapped: 0, keysLeft: 0 };
   for (const handles of regions.all()) {
     const rotated = await rewrapAuditStreamKeys(handles.db, keys);
     auditStreams.keysRewrapped += rotated.rewrapped;
     auditStreams.keysLeft += rotated.left;
-    if (!webhooksEnabled(env)) continue;
-    const done = await maintainAuditStreams(handles.db, now);
+    const done = await maintainAuditStreams(handles.db, now, { arm: webhooksEnabled(env) });
     auditStreams.prunedDeliveries += done.prunedDeliveries;
     auditStreams.armed += done.armed;
   }

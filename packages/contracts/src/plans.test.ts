@@ -240,6 +240,7 @@ describe("plan offers", () => {
       "versionDiff",
       "shareLinks",
       "commentNotices",
+      "webhooks",
       "analytics",
       "branding",
       "workspaces",
@@ -249,14 +250,15 @@ describe("plan offers", () => {
       "audit",
       "auditExport",
       "policies",
+      "euResidency",
     ]);
     expect([...AVAILABLE_PLAN_FEATURES]).toEqual(
       PLAN_FEATURES.filter((feature) => planFeatureAvailable(feature)),
     );
   });
 
-  it("keeps webhooks, custom domains and every later feature coming soon", () => {
-    for (const feature of ["webhooks", "customDomains", "sso", "euResidency"]) {
+  it("keeps custom domains, integrations, single sign-on and SCIM coming soon", () => {
+    for (const feature of ["customDomains", "integrations", "sso", "scim"]) {
       expect(planFeatureAvailable(feature as PlanFeature), feature).toBe(false);
     }
   });
@@ -264,8 +266,16 @@ describe("plan offers", () => {
   it("splits each plan's features into available and coming soon", () => {
     expect(planFeatureStatus("free")).toEqual({ available: [], comingSoon: [] });
     expect(planFeatureStatus("pro")).toEqual({
-      available: ["pin", "versionDiff", "shareLinks", "commentNotices", "analytics", "branding"],
-      comingSoon: ["webhooks", "customDomains"],
+      available: [
+        "pin",
+        "versionDiff",
+        "shareLinks",
+        "commentNotices",
+        "webhooks",
+        "analytics",
+        "branding",
+      ],
+      comingSoon: ["customDomains"],
     });
     expect(planFeatureStatus("team").available).toContain("workspaces");
     // Approval reviews shipped (decision 0013): included in Team, no longer coming soon.

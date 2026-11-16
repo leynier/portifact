@@ -186,6 +186,29 @@ describe("webhooks switched off and the consumer batch", () => {
     expect(row?.disabledReason).toBe("unavailable");
   });
 
+  it("stops the webhooks of every region while switched off, not only the default one", async () => {
+    const { webhookId } = await hookWithTest();
+    const [row] = await db()
+      .select()
+      .from(schema.webhooks)
+      .where(eq(schema.webhooks.id, webhookId));
+    if (!row) throw new Error("no webhook");
+    // An EU owner's webhook lives in the EU database (decision 0005).
+    const eu = regionsFromEnv(env).get("eu").db;
+    const euId = `wh_${crypto.randomUUID().replaceAll("-", "")}`;
+    await eu
+      .insert(schema.webhooks)
+      .values({ ...row, id: euId, ownerId: `ws_${crypto.randomUUID().replaceAll("-", "")}` });
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+    const result = await runScheduled({ ...env, WEBHOOK_KEY: KEY }, NOW, undefined, {
+      relay: false,
+    });
+    log.mockRestore();
+    expect(result.webhooksStopped).toBeGreaterThanOrEqual(2);
+    const [stopped] = await eu.select().from(schema.webhooks).where(eq(schema.webhooks.id, euId));
+    expect(stopped?.disabledReason).toBe("unavailable");
+  });
+
   it("runs the batch's other jobs while a slow receiver holds its delivery", async () => {
     const { job } = await hookWithTest();
     // A purge job of an artifact already gone: it only deletes its row.
