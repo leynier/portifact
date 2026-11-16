@@ -76,9 +76,9 @@
 
       <section id="what-changed" aria-labelledby="what-changed-heading" class="mt-12 scroll-mt-8">
         <h2 id="what-changed-heading" class="text-xl font-semibold tracking-tight">What changed in this version</h2>
-        <p class="mt-4 leading-7">This version replaces the version of November 16, 2026 and takes effect on November 17, 2026. It makes available four optional features that earlier versions described under "Features not yet available", with the same terms. The rest of the Terms is unchanged. In short:</p>
+        <p class="mt-4 leading-7">This version replaces the version of November 16, 2026 and takes effect on November 17, 2026. This version makes webhooks, audit streams, GitHub Actions federation and EU data residency available. It updates plan entitlements and administrator responsibilities, states the restriction on moves between regions, says what customers must arrange before sending data to destinations they choose, and updates the Privacy Policy and Data Processing Addendum for these features. In short:</p>
         <ul class="mt-4 list-disc space-y-2 pl-6 leading-7">
-        <li>On a plan with webhooks, the admins of a space can have Portifact send events about its artifacts to HTTPS addresses they choose, and on the Enterprise plan a workspace's admins can stream its audit log to an endpoint they run. See <a href="#webhooks">Webhooks and audit streams</a>.</li>
+        <li>On a plan with webhooks, the admins of a space can have Portifact send events about its artifacts to HTTPS addresses they choose, and on the Enterprise plan a workspace's admins can send its retained audit records in batches to an endpoint they run. See <a href="#webhooks">Webhooks and audit streams</a>.</li>
         <li>On a plan with service tokens, a workspace can trust a GitHub repository so its workflow runs get short-lived credentials without a stored token. See <a href="#automation">Service tokens and publish keys</a>.</li>
         <li>On the Enterprise plan, we can create a workspace whose stored content is kept in the European Union. See <a href="#workspaces">Workspaces</a>.</li>
         </ul>
@@ -324,8 +324,8 @@
         <h2 id="webhooks-heading" class="text-xl font-semibold tracking-tight">Webhooks and audit streams</h2>
         <ul class="mt-4 list-disc space-y-2 pl-6 leading-7">
         <li><strong>Webhooks.</strong> On a plan with webhooks, the admins of your account or workspace can have Portifact send events about your artifacts to HTTPS addresses they choose. You are responsible for the addresses you choose and for what happens to the data once it is sent. Do not use webhooks to send requests to systems you are not allowed to use.</li>
-        <li><strong>Audit streams.</strong> On the Enterprise plan, a workspace's admins can send its audit log continuously to an HTTPS endpoint they choose and run. Once sent, the data is held by that endpoint under the customer's own terms and responsibility.</li>
-        <li>The services that receive webhooks and audit streams act under their own terms; we remain responsible for what we send them on the customer's instruction.</li>
+        <li><strong>Audit streams.</strong> On the Enterprise plan, a workspace's admins can send retained audit records periodically in batches, from the starting point they select, to an HTTPS endpoint they choose and run. Deliveries can be retried, and the stream includes test records and notices of gaps caused by retention. Once sent, the data is held by that endpoint under the customer's own terms and responsibility.</li>
+        <li>The recipients of webhooks and audit streams are chosen by the customer and are not engaged by us as our sub-processors merely by receiving these deliveries; their role depends on their actual processing and their agreement with the customer. Before enabling delivery, the customer must have authority and a lawful basis for the disclosures, inform the people affected, and put in place any recipient agreement and transfer safeguard the law requires, since these destinations may be outside the European Economic Area or the United Kingdom. We transmit on the customer's documented instructions and remain responsible for what we send.</li>
         </ul>
       </section>
 

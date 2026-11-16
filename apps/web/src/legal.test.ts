@@ -331,6 +331,24 @@ describe("legal pages", () => {
     expect(privacy).not.toContain("Keeping data in the EU is not offered yet");
     expect(section(privacy, "location")).toContain("<strong>Data kept in the EU.</strong>");
     expect(section(privacy, "retention")).toContain("Webhooks and audit streams</th>");
+    // Review of PR #307: what the code keeps, and no absolute claim a typed name can break.
+    for (const text of [
+      "removed by periodic, bounded cleanup jobs, including while delivery is disabled",
+      "Deleted webhook, audit stream and GitHub trust rule identifiers</th>",
+      "service token's label",
+      "Exchange security counters include the requesting IP address",
+      "Names and labels supplied by users are included as entered",
+      "Cloudflare may log Durable Object identifiers outside the jurisdiction",
+      "Data-rights and moderation notices can additionally contain pseudonymous identifiers",
+    ]) {
+      expect(privacy, text).toContain(text);
+    }
+    expect(section(privacy, "location")).toContain(
+      "<strong>To destinations a space chooses.</strong>",
+    );
+    expect(privacy).not.toContain("never comment text, content, credentials");
+    expect(privacy).not.toContain("send GitHub nothing about you");
+    expect(section(terms, "webhooks")).toContain("not engaged by us as our sub-processors");
     const dpa = read("dpa");
     expect(section(dpa, "subprocessors")).toContain("Cloudflare's EU jurisdiction");
     expect(section(dpa, "not-yet-available")).not.toContain("webhooks");
