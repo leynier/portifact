@@ -2,11 +2,11 @@
 // over the real documents object: every operation through both gives the same body and the same
 // error, needs the same scope, and refuses a stranger and a workspace member alike.
 import { env } from "cloudflare:workers";
-import { DEFAULT_POLICY } from "@portifact/contracts";
+import { DATA_OWNER_READS, DEFAULT_POLICY } from "@portifact/contracts";
 import { regionsFromEnv, schema } from "@portifact/db";
 import { createWorkspace } from "@portifact/services";
 import { and, eq } from "drizzle-orm";
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { DATA_TOOL_SCOPES } from "../src/mcp/data-tools.ts";
 import { TOOL_SCOPES } from "../src/mcp/tools.ts";
 import { authorizeWithPkce, exchangeCode, type TokenResponse } from "./flows.ts";
@@ -484,6 +484,99 @@ describe("artifact data tools", () => {
     const second = rest.structuredContent as { rows: unknown[]; next: string | null };
     expect(page.rows.length + second.rows.length).toBe(100);
     expect(second.next).toBeNull();
+  });
+});
+
+describe("the owner-side read limit", () => {
+  /** Sets a `rate_limits` counter as if `count` requests were counted from `start`. */
+  async function counted(key: string, count: number, start: number) {
+    await env.DB.prepare(
+      "insert into rate_limits (key, window_start, count) values (?1, ?2, ?3) on conflict (key) do update set window_start = ?2, count = ?3",
+    )
+      .bind(key, start, count)
+      .run();
+  }
+
+  it("refuses a caller past its minute with the same error at both, and Retry-After at the API", async () => {
+    const b = await both("data-read-limit@example.test");
+    const id = await publish(b);
+    const userId = (await (await b.apiCall("/api/v1/me")).json<{ userId: string }>()).userId;
+    const base = `/api/v1/artifacts/${id}/data`;
+    vi.useFakeTimers({ toFake: ["Date"] });
+    try {
+      const now = Date.now();
+      vi.setSystemTime(now);
+      await counted(`data_read:${userId}`, DATA_OWNER_READS.perActorPerMinute, now - 20_000);
+      const response = await b.apiCall(base);
+      expect(response.status).toBe(429);
+      expect(response.headers.get("retry-after")).toBe("40");
+      const viaApi = await fromApi(response);
+      expect(viaApi).toEqual({
+        ok: false,
+        body: {
+          error: {
+            code: "rate_limited",
+            message: "Too many reads of artifact data. Try again in 40 seconds.",
+          },
+        },
+      });
+      expect(fromTool(await b.tool("describe_artifact_data", { artifactId: id }))).toEqual(viaApi);
+      const doc = "AAAAAAAAAAAAAAAA";
+      for (const [tool, args, path] of [
+        ["export_artifact_data", {}, `${base}/export`],
+        ["count_artifact_data", { collection: "votes" }, `${base}/count?collection=votes`],
+        ["query_artifact_data", { collection: "votes" }, `${base}/collections/votes/documents`],
+        [
+          "get_data_document",
+          { collection: "votes", id: doc },
+          `${base}/collections/votes/documents/${doc}`,
+        ],
+      ] as const) {
+        const viaTool = fromTool(await b.tool(tool, { artifactId: id, ...args }));
+        expect(viaTool).toMatchObject({ ok: false, body: { error: { code: "rate_limited" } } });
+        expect(await fromApi(await b.apiCall(path))).toEqual(viaTool);
+      }
+      // A change is never a read: it goes through.
+      expect(
+        fromTool(
+          await b.tool("declare_data_collection", { artifactId: id, name: "votes", mode: "own" }),
+        ),
+      ).toMatchObject({ ok: true });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("refuses an owner past its day, whoever reads, until the window ends", async () => {
+    const b = await both("data-read-day@example.test");
+    const id = await publish(b);
+    const userId = (await (await b.apiCall("/api/v1/me")).json<{ userId: string }>()).userId;
+    vi.useFakeTimers({ toFake: ["Date"] });
+    try {
+      const now = Date.now();
+      vi.setSystemTime(now);
+      // The account's personal space on Free: one data artifact's day.
+      await counted(`data_read_owner:${userId}`, DATA_OWNER_READS.perDataArtifactPerDay, now);
+      const response = await b.apiCall(`/api/v1/artifacts/${id}/data`);
+      expect(response.status).toBe(429);
+      expect(response.headers.get("retry-after")).toBe("86400");
+      expect(await response.json()).toEqual({
+        error: {
+          code: "rate_limited",
+          message:
+            "This space has used its reads of artifact data for the day. Try again in 24 hours.",
+        },
+      });
+      // Once the day's window has ended, the count starts again.
+      await counted(
+        `data_read_owner:${userId}`,
+        DATA_OWNER_READS.perDataArtifactPerDay + 1,
+        now - DATA_OWNER_READS.ownerWindowMs,
+      );
+      expect((await b.apiCall(`/api/v1/artifacts/${id}/data`)).status).toBe(200);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 

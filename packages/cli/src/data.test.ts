@@ -344,6 +344,32 @@ describe("portifact data", () => {
   });
 });
 
+describe("the owner-side read limit", () => {
+  it("answers the API's refusal of reads and export pages with no retry, and still writes", async () => {
+    const id = await declared();
+    const message = "Too many reads of artifact data. Try again in 40 seconds.";
+    server.api.data.readRefusal = { message, retryAfterSeconds: 40 };
+    for (const args of [
+      ["describe", id],
+      ["get", id, "votes", "AAAAAAAAAAAAAAAA"],
+      ["query", id, "votes"],
+      ["count", id, "votes"],
+      ["export", id],
+    ]) {
+      const before = dataRequests().length;
+      const refused = await h.invoke("data", ...args, "--json");
+      expect(refused.code, args.join(" ")).toBe(EXIT.failure);
+      expect(JSON.parse(refused.stdout)).toEqual({ error: { code: "rate_limited", message } });
+      // Not retried: the refusal says when the limit ends.
+      expect(dataRequests().length - before).toBe(1);
+    }
+    const text = await h.invoke("data", "count", id, "votes");
+    expect(text.stderr).toContain(message);
+    const created = await h.invoke("data", "create", id, "votes", "--body", '{"choice":"a"}');
+    expect(created.code, created.stderr).toBe(0);
+  });
+});
+
 describe("dataQueryString", () => {
   it("builds the API's query parameters", () => {
     expect(

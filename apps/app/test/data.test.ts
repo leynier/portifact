@@ -1,7 +1,7 @@
 // The owner document API of artifact data (decision 0026, delivery 5) through /api/v1, against
 // the real documents object of `portifact-data` (bound by script name in the test pool): every
 // route's success, the scopes, the roles, the switch, idempotent retries, the export pages and
-// the audit relay settling with the real object. MCP parity is in mcp-parity.test.ts.
+// the audit relay settling with the real object. MCP parity is in data-tools.test.ts.
 import { env } from "cloudflare:test";
 import { regionsFromEnv, schema } from "@portifact/db";
 import { dataNamespaces, runDataAudit } from "@portifact/services";
