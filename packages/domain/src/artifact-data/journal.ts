@@ -37,3 +37,48 @@ export function retired(existing: JournalEntry | null, now: number): JournalEntr
 export function journalPrunable(entry: JournalEntry, now: number): boolean {
   return entry.retiredAt !== undefined && now - entry.retiredAt >= ARTIFACT_DATA.journalRetiredMs;
 }
+
+/** The entry once its author erasure completed: kept with its ID and retirement. */
+export function erased(entry: JournalEntry, now: number): JournalEntry {
+  return { ...entry, erasedAt: entry.erasedAt ?? now };
+}
+
+/** What protects an entry from deletion at the moment it is decided, read in D1. */
+export interface JournalProtections {
+  /** The artifact has an open legal hold. */
+  held: boolean;
+  /** A `data_reconcile` job waits in the region (a restore re-derives erasures from the journal). */
+  reconciling: boolean;
+}
+
+/**
+ * Whether the entry itself allows deletion: retired, past its retention, and either holding no
+ * visitor ID or carrying the proof that its author erasure completed (`erasedAt`). An entry whose
+ * erasure has not completed is the only way a restore's reconciliation can re-derive a lost
+ * erasure, so it is never deleted, however old.
+ */
+export function journalEntryDeletable(entry: JournalEntry, now: number): boolean {
+  return journalPrunable(entry, now) && (entry.visitorId === null || entry.erasedAt !== undefined);
+}
+
+/**
+ * Whether an entry is deleted now: the entry allows it (`journalEntryDeletable`) and nothing
+ * protects it. The cleanup decides the protections inside D1 (the claim and the finalize of
+ * `pruneJournalEntries`), never from an earlier read.
+ */
+export function journalDeletable(
+  entry: JournalEntry,
+  now: number,
+  protections: JournalProtections,
+): boolean {
+  return journalEntryDeletable(entry, now) && !protections.held && !protections.reconciling;
+}
+
+/**
+ * Whether a reconciliation must re-derive the account's author erasure from this entry: retired,
+ * with a visitor ID, and no proof that the erasure completed. Decided before anything else, at
+ * any age.
+ */
+export function erasureOwed(entry: JournalEntry): boolean {
+  return entry.retiredAt !== undefined && entry.visitorId !== null && entry.erasedAt === undefined;
+}

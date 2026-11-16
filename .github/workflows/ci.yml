@@ -41,45 +41,41 @@ jobs:
           MODE: ${{ github.base_ref == 'main' && 'full' || 'diff' }}
         run: bun scripts/ci-scope-main.ts "$BASE_SHA" "$HEAD_SHA" "$MODE"
 
+  # The jobs behind `quality` (quality.yml): `suite / check` and one `suite / test (<group>)` per
+  # package group, in parallel. `quality` itself only gathers them, so the required check keeps
+  # its name and fails when any of them fails.
+  suite:
+    name: suite
+    needs: changes
+    if: ${{ !cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.quality != 'false') }}
+    uses: ./.github/workflows/quality.yml
+    with:
+      coverage: ${{ github.event_name == 'push' }}
+
   quality:
     name: quality
-    needs: changes
+    needs: [changes, suite]
     if: ${{ !cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.quality != 'false') }}
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v7
-      - uses: oven-sh/setup-bun@v2
-        with:
-          bun-version-file: package.json
-      - uses: actions/setup-node@v7
-        with:
-          node-version: 24
-      - run: bun install --frozen-lockfile
-      - run: bun run check
-      - run: bun run test
-      - run: shellcheck scripts/*.sh action/*.sh
-      - run: node scripts/check-release-notes.mjs
-      - name: Validate the app Worker bundle
-        working-directory: apps/app
-        run: npx wrangler deploy --dry-run --outdir "$RUNNER_TEMP/app-worker"
-      - name: Validate the content Worker bundle
-        working-directory: apps/content
-        run: npx wrangler deploy --dry-run --outdir "$RUNNER_TEMP/content-worker"
-      - name: Validate the jobs Worker bundle
-        working-directory: apps/jobs
-        run: npx wrangler deploy --dry-run --outdir "$RUNNER_TEMP/jobs-worker"
-      - name: Validate the data Worker bundle
-        working-directory: apps/data
-        run: npx wrangler deploy --dry-run --outdir "$RUNNER_TEMP/data-worker"
+      - name: Every check and test group passed
+        env:
+          RESULT: ${{ needs.suite.result }}
+        run: |
+          if [ "$RESULT" != success ]; then
+            echo "The quality jobs ended with '$RESULT'." >&2
+            exit 1
+          fi
 
   # Playwright end to end in Chromium, Firefox and WebKit (e2e/, docs/testing.md), with the
   # browsers' system libraries installed, so WebKit runs here even though it needs libraries
   # most workstations lack. On Linux WebKit has no partitioned cookies and covers the fallback.
-  # One job per Playwright project, in parallel: the suite runs with one worker per stack (the
-  # stack shares one D1, R2 and per-IP limits), so splitting by browser is what cuts the time.
-  # Each job installs only its own browser.
+  # Two jobs per Playwright project, in parallel, each with half of its test files
+  # (`--shard`) on its own stack: the suite runs with one worker per stack (the stack shares one
+  # D1, R2 and per-IP limits), so splitting is what cuts the time. Each job installs only its own
+  # browser. The grant experiment and the edit suggestion checks run in the first shard only.
   e2e:
-    name: e2e (${{ matrix.project }})
+    name: e2e (${{ matrix.project }}, ${{ matrix.shard }}/2)
     needs: changes
     if: ${{ !cancelled() && (needs.changes.result != 'success' || needs.changes.outputs.e2e != 'false') }}
     runs-on: ubuntu-latest
@@ -87,6 +83,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
+        shard: [1, 2]
+        project: [chromium-3pc-blocked, firefox-chips, firefox-3pc-blocked, webkit]
         include:
           - project: chromium-3pc-blocked
             browser: chromium
@@ -125,25 +123,25 @@ jobs:
             sleep 15
           done
           exit 1
-      - run: bun run test:e2e -- --project=${{ matrix.project }}
+      - run: bun run test:e2e -- --project=${{ matrix.project }} --shard=${{ matrix.shard }}/2
       # Decision 0026's grant handoff experiment (spikes/artifact-data-grant), in the same engine
       # with the browser this job installed: about half a minute, and the only place WebKit on
       # Linux runs it. It runs even when the suite above failed, so each verdict stands alone.
       - name: Artifact data grant experiment
-        if: ${{ success() || failure() }}
+        if: ${{ (success() || failure()) && matrix.shard == 1 }}
         run: bun run --cwd spikes/artifact-data-grant spike -- --project=${{ matrix.project }}
       # Decision 0027's browser checks (spikes/edit-suggestions): parse5 against the engine for
       # the contexts the HTML subset refuses, and the production preview builder's output, framed
       # with an empty sandbox, never animating. About 5 seconds in Chromium and 8 in Firefox; run
       # once per engine, in the jobs whose browser is Chromium or the first Firefox one.
       - name: Edit suggestion browser checks
-        if: ${{ (success() || failure()) && (matrix.project == 'chromium-3pc-blocked' || matrix.project == 'firefox-chips') }}
+        if: ${{ (success() || failure()) && matrix.shard == 1 && (matrix.project == 'chromium-3pc-blocked' || matrix.project == 'firefox-chips') }}
         run: bun run --cwd spikes/edit-suggestions browser -- --project=${{ matrix.browser }}
       - name: Keep traces of failed tests
         if: failure()
         uses: actions/upload-artifact@v7
         with:
-          name: e2e-traces-${{ matrix.project }}
+          name: e2e-traces-${{ matrix.project }}-${{ matrix.shard }}
           path: |
             e2e/test-results/
             spikes/artifact-data-grant/test-results/
@@ -208,6 +206,7 @@ jobs:
         if: ${{ needs.changes.result != 'success' || needs.changes.outputs.secrets_history != 'false' }}
         run: gitleaks git --no-banner --redact --verbose --log-opts="HEAD" .
 
+  # Publishes the coverage the test groups measured, instead of running every test again.
   coverage-badge:
     name: coverage-badge
     if: github.event_name == 'push'
@@ -222,11 +221,10 @@ jobs:
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version-file: package.json
-      - uses: actions/setup-node@v7
+      - uses: actions/download-artifact@v8
         with:
-          node-version: 24
-      - run: bun install --frozen-lockfile
-      - run: bun run test
+          pattern: coverage-*
+          merge-multiple: true
       - name: Publish coverage to the badges branch
         run: |
           bun scripts/coverage-badge.ts > "$RUNNER_TEMP/coverage.json"

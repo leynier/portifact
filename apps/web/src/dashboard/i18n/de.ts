@@ -29,7 +29,7 @@ export const de = {
     "Die Seite erfährt nur eine ID für dieses Artefakt: keinen Namen, keine E-Mail und kein Konto.",
   "dataGrant.anonymous.lasts": "Das gilt {days} Tage in diesem Browser.",
   "dataGrant.anonymous.noAccount":
-    "Ohne Konto kann Portifact dir später nicht zeigen oder löschen, was du gespeichert hast. Nur die Seite selbst kann das, solange dieser Browser es behält.",
+    "Ohne Konto führt Portifact keinen Verlauf, den du selbst öffnen kannst. Die Seite kann dir zeigen, was du gespeichert hast, solange diese Erlaubnis gilt. Du kannst dich auch an die Personen wenden, die dieses Artifact verwalten, oder an privacy@portifact.com; Portifact hilft, wo es prüfen kann, welche Daten dich betreffen.",
   "dataGrant.anonymous.signIn": "Stattdessen anmelden",
   "dataGrant.anonymous.signInTitle": "Zum Speichern anmelden",
   "dataGrant.anonymous.closed":
@@ -49,8 +49,20 @@ export const de = {
   "sharedData.askAccess": "Eine Kopie dessen, was ich gespeichert habe",
   "sharedData.askErasure": "Löschen, was ich gespeichert habe",
   "sharedData.askSend": "Anfrage senden",
-  "sharedData.askSent": "Deine Anfrage zu {name} wurde gesendet",
   "sharedData.askFailed": "Die Anfrage wurde nicht gesendet",
+  "sharedData.askReceived":
+    "Deine Anfrage zu {name} ist eingegangen. Die Verwaltenden erhalten so bald wie möglich eine E-Mail",
+  "sharedData.downloadContinue": "Download fortsetzen",
+  "sharedData.downloadContinueNamed": "Download fortsetzen: was du in {name} gespeichert hast",
+  "sharedData.downloadRestart": "Neu beginnen",
+  "sharedData.downloadRestartNamed": "Neu beginnen: Download von {name}",
+  "sharedData.downloadPaused": "Download angehalten",
+  "sharedData.downloadPausedAllowance":
+    "{count, plural, one {Bisher # Dokument heruntergeladen.} other {Bisher # Dokumente heruntergeladen.}} Dein heutiges Kontingent für deine Daten in diesem Artefakt ist aufgebraucht. Setze morgen nach Mitternacht UTC fort, dann macht der Download dort weiter, wo er aufgehört hat.",
+  "sharedData.downloadPausedError":
+    "{count, plural, one {Bisher # Dokument heruntergeladen.} other {Bisher # Dokumente heruntergeladen.}} Der Rest wurde nicht heruntergeladen. Setze fort, dann macht der Download dort weiter, wo er aufgehört hat.",
+  "sharedData.downloadedAll":
+    "Alles heruntergeladen, was du in {name} gespeichert hast ({count} Dokumente)",
   "dataGrant.viewer.saving": "Diese Seite speichert, was du eingibst",
   "dataGrant.viewer.savingHint":
     "Sie kennt dich über deinen Anzeigenamen und eine ID für dieses Artifact. Du kannst das jederzeit beenden.",
@@ -66,8 +78,15 @@ export const de = {
   "sharedData.deleteTitle": "Löschen, was du in {name} gespeichert hast?",
   "sharedData.deleteBody":
     "Jedes Dokument, das du dort erstellt hast, wird endgültig gelöscht, samt späterer Änderungen anderer. Deine Änderungen an Dokumenten anderer bleiben, ohne deinen Namen.",
-  "sharedData.deleted": "Gelöscht, was du in {name} gespeichert hast ({count} Dokumente)",
   "sharedData.deleteFailed": "Löschen wurde nicht abgeschlossen",
+  "sharedData.eraseStarted":
+    "Was du in {name} gespeichert hast, wird gelöscht. Es geht weiter, auch wenn du diese Seite schließt.",
+  "sharedData.erasing":
+    "{count, plural, one {Was du gespeichert hast, wird gelöscht: bisher # Dokument} other {Was du gespeichert hast, wird gelöscht: bisher # Dokumente}}",
+  "sharedData.erased":
+    "{count, plural, one {Am {date} gelöscht, was du gespeichert hast (# Dokument)} other {Am {date} gelöscht, was du gespeichert hast (# Dokumente)}}",
+  "sharedData.eraseFailed":
+    "Das Löschen dessen, was du gespeichert hast, wurde nicht abgeschlossen. Du kannst es erneut anfordern.",
   "dataGrant.frame.granted": "Diese Seite kann jetzt speichern, was du eingibst",
   "dataGrant.frame.saving": "Deine Wahl wird gespeichert",
   "dataGrant.frame.unavailable": "Speichern ist in diesem Rahmen nicht verfügbar",
@@ -94,6 +113,13 @@ export const de = {
   "dataGrant.unavailable": "Diese Anfrage kann nicht verwendet werden",
   "dataGrant.unavailableHint": "Öffne das Artifact erneut und wähle dort das Speichern.",
   "dataGrant.failed": "Erlauben wurde nicht abgeschlossen",
+  "dataGrant.legal.terms": "Nutzungsbedingungen",
+  "dataGrant.legal.acceptableUse": "Richtlinie zur zulässigen Nutzung",
+  "dataGrant.legal.privacy": "Datenschutzerklärung",
+  "dataGrant.legal.notice":
+    "Portifact hostet diese Seite und zeigt dieses Steuerelement an. Die {privacy} erklärt, was Portifact speichert. Der Link öffnet sich in einem neuen Tab.",
+  "dataGrant.legal.statement":
+    "Wenn du Erlauben wählst, bestätigst du, dass du mindestens 18 Jahre alt bist, und stimmst für das, was du hier speicherst, den {terms} und der {acceptableUse} zu. Die Links öffnen sich in einem neuen Tab.",
   "sharedData.title": "Geteilte Daten",
   "sharedData.description":
     "Artifact-Seiten, die dich kennen und speichern dürfen, was du eingibst. Ein Widerruf wirkt innerhalb einer Minute; Gespeichertes bleibt beim Artifact.",

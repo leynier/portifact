@@ -195,6 +195,39 @@ export class ArtifactDocuments extends DurableObject<Env> {
     });
   }
 
+  /**
+   * One bounded chunk of a person's own erasure (decision 0026, "A person's rights"), under its own
+   * operation ID: their documents deleted and their edits unattributed, with no barrier.
+   */
+  lifecycleEraseOwn(
+    envelope: unknown,
+    visitorId: unknown,
+    before: unknown,
+    editsAfter: unknown,
+    opId: unknown,
+    now: unknown,
+  ) {
+    const input = this.#parsed(() => ({
+      envelope: {
+        ...LifecycleEnvelope.parse(envelope),
+        opId: OperationId.parse(opId),
+      } satisfies DataEnvelope,
+      visitorId: VisitorId.parse(visitorId),
+      before: Now.parse(before),
+      editsAfter: ExportCursor.nullable().parse(editsAfter),
+      now: Now.parse(now),
+    }));
+    if ("refused" in input) return input.refused;
+    return this.store.eraseOwnChunk(
+      input.envelope,
+      input.visitorId,
+      input.before,
+      input.editsAfter,
+      CHUNK_TAKE,
+      { now: input.now, limits: LIFECYCLE_LIMITS },
+    );
+  }
+
   /** Reconciliation's quarantine. */
   lifecycleQuarantine(envelope: unknown, reason: unknown, now: unknown) {
     const input = this.#parsed(() => ({

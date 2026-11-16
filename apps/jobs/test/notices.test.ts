@@ -4,7 +4,12 @@ import { RecipientSuppressedError } from "@portifact/services";
 import { eq } from "drizzle-orm";
 import { describe, expect, it } from "vitest";
 import worker, { type Env, runScheduled } from "../src/index.ts";
-import { expiryNotifierFromEnv, NOTICE_SENDER, noticeEmail } from "../src/notices.ts";
+import {
+  expiryNotifierFromEnv,
+  moderationNotifierFromEnv,
+  NOTICE_SENDER,
+  noticeEmail,
+} from "../src/notices.ts";
 
 const DAY = 86_400_000;
 const NOW = Date.UTC(2026, 10, 12, 9);
@@ -50,6 +55,49 @@ describe("expiry notice email", () => {
   it("says how long the owner's plan keeps the archive", () => {
     expect(noticeEmail(env, [ARTIFACT]).text).toBe(noticeEmail(env, [ARTIFACT], null, 6).text);
     expect(noticeEmail(env, [ARTIFACT], null, 12).text).not.toBe(noticeEmail(env, [ARTIFACT]).text);
+  });
+});
+
+describe("moderationNotifierFromEnv", () => {
+  const notice = {
+    to: "ada@example.com",
+    locale: null,
+    action: "suspend" as const,
+    target: "artifact" as const,
+    artifactId: "k7d2qm4xab",
+    attachmentId: null,
+    artifactName: "Plan",
+    workspaceSlug: "team",
+    reason: "harassment" as const,
+    source: "notice" as const,
+    facts: "The page shows a list of names.",
+    ground: "Acceptable Use Policy.",
+    decidedAt: NOW,
+  };
+
+  it("links a manager to the artifact in their space, and a data author to their own data", async () => {
+    const { binding, sent } = fakeEmail();
+    const notifier = moderationNotifierFromEnv({ ...env, EMAIL: binding }, "default");
+    await notifier.send({ ...notice, audience: "manager" });
+    // A data author is never sent into a space they are not in, whatever the notice carries.
+    await notifier.send({ ...notice, audience: "data_author" });
+    expect(sent[0]?.text).toContain(
+      "https://app.portifact.com/artifacts/k7d2qm4xab?workspace=team",
+    );
+    expect(sent[1]?.text).toContain("See what you saved: https://app.portifact.com/shared-data\n");
+    expect(sent[1]?.text).not.toContain("workspace=");
+    expect(sent[1]?.subject).toBe("We suspended an artifact where you saved data: k7d2qm4xab");
+    expect(sent[1]?.text).toContain('"Plan" (k7d2qm4xab)');
+  });
+
+  it("leaves the artifact's name out of a data author's email outside the default region", async () => {
+    const { binding, sent } = fakeEmail();
+    await moderationNotifierFromEnv({ ...env, EMAIL: binding }, "eu").send({
+      ...notice,
+      audience: "data_author",
+    });
+    expect(sent[0]?.text).not.toContain("Plan");
+    expect(sent[0]?.text).toContain("k7d2qm4xab");
   });
 });
 

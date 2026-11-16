@@ -811,7 +811,8 @@ describe("data_author_erasure", () => {
       retiredAt?: number;
       visitorId: string | null;
     };
-    expect(entry).toEqual({ visitorId: null, firstGrantAt: NOW, retiredAt: NOW });
+    // Nothing was left to erase: the completion is recorded at once.
+    expect(entry).toEqual({ visitorId: null, firstGrantAt: NOW, retiredAt: NOW, erasedAt: NOW });
   });
 
   it("ends on an object nothing bound while data is off", async () => {
@@ -1025,7 +1026,7 @@ describe("the journal step of an account deletion", () => {
 });
 
 describe("reconciliation", () => {
-  it("walks the inventory, then the journal, re-deriving author erasures and pruning old entries", async () => {
+  it("walks the inventory, then the journal, re-deriving author erasures and deleting no entry", async () => {
     const memory = memoryObjects();
     const { id, ownerId, object } = await seeded(memory);
     // D1 behind the object: raised.
@@ -1064,7 +1065,8 @@ describe("reconciliation", () => {
       )[0]?.generation,
     ).toBe(1);
     expect(await env.ARTIFACTS.get(inventoryKey(old))).toBeNull();
-    expect(await env.ARTIFACTS.get(journalKey(stale, id))).toBeNull();
+    // Deleting journal entries is the scheduled cleanup's alone (`pruneJournalEntries`).
+    expect(await env.ARTIFACTS.get(journalKey(stale, id))).not.toBeNull();
     const jobs = await db().select().from(schema.outbox).where(eq(schema.outbox.subject, id));
     expect(jobs.map((row) => row.payload)).toContainEqual({ userId, visitorId: visitor });
     expect((await listDataFindings(db(), 1000)).find((f) => f.artifactId === id)?.action).toBe(

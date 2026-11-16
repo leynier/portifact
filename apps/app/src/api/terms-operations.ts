@@ -69,6 +69,7 @@ export const ACCOUNT_ROUTE_OPERATIONS: Readonly<Record<string, AccountSessionOpe
   "GET /api/v1/account/data-grants/:artifactId": "read_data_grant_status",
   "POST /api/v1/account/data-grants/:artifactId/rights-request": "request_data_rights",
   "DELETE /api/v1/account/data-grants/:artifactId/documents/:collection/:id": "delete_own_document",
+  "POST /api/v1/account/data-grants/:artifactId/erasure": "erase_own_data",
 };
 
 /** The operation a matched account route performs, or null when it has no name. */

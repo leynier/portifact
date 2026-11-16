@@ -3,7 +3,7 @@
 // revoke them. Revoking applies within a minute everywhere the grant was used. What the person
 // saved stays with the artifact; deleting or exporting it is the person's right on the artifact's
 // own page. Names and hosts are untrusted text, rendered as text only.
-import type { DataGrantView } from "@portifact/contracts";
+import type { DataGrantView, OwnErasureView } from "@portifact/contracts";
 import {
   Button,
   Callout,
@@ -19,15 +19,19 @@ import {
   TableHeaderCell,
   TableRow,
 } from "@portifact/ui";
-import { useInfiniteQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { CircleAlert, Download, Mail, Trash2, Unplug } from "lucide-react";
-import { useState } from "react";
+import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { CircleAlert, Download, Mail, RotateCcw, Trash2, Unplug } from "lucide-react";
+import { useEffect, useState } from "react";
+import { ApiFailure } from "../api.ts";
 import { useAnnounce, useDashboard, useFormatDate, useT } from "../context.tsx";
 import { safeFileName } from "../publish/download.ts";
 import { useDocumentTitle } from "../use-document-title.ts";
 import { errorMessage } from "./artifact-list.tsx";
+import { ACCOUNT_QUERY } from "./shell.tsx";
 
 export const DATA_GRANTS_QUERY = ["data-grants"] as const;
+/** How often the list is read again while one of its erasures runs. */
+const ERASURE_POLL_MS = 10_000;
 
 export function SharedDataScreen() {
   const t = useT();
@@ -38,6 +42,13 @@ export function SharedDataScreen() {
     queryFn: ({ pageParam }) => api.dataGrants(pageParam),
     initialPageParam: null as string | null,
     getNextPageParam: (page) => page.next,
+    // While an erasure runs the list is read again, so its count and its end show.
+    refetchInterval: (query) =>
+      query.state.data?.pages.some((page) =>
+        page.items.some((item) => item.erasure?.state === "running"),
+      )
+        ? ERASURE_POLL_MS
+        : false,
   });
   const items = grants.data?.pages.flatMap((page) => page.items) ?? [];
   return (
@@ -121,58 +132,178 @@ function GrantTable({ items }: { items: DataGrantView[] }) {
   );
 }
 
-/** Pages one export or delete reads at most: far above what one person writes in an artifact. */
+/** Pages one download reads at most per click: far above what one day's allowance pays for. */
 const MAX_PAGES = 200;
 
-/** Every document the person created in the artifact, page by page. */
-async function ownRows(
-  api: ReturnType<typeof useDashboard>["api"],
-  artifactId: string,
-): Promise<{ collection: string; id: string }[]> {
-  const rows: { collection: string; id: string }[] = [];
-  let after: string | null = null;
-  for (let page = 0; page < MAX_PAGES; page++) {
-    const answer: { rows: { collection: string; id: string }[]; next: string | null } =
-      await api.ownData(artifactId, after);
-    rows.push(...answer.rows);
-    if (answer.next === null) return rows;
-    after = answer.next;
-  }
-  throw new Error("Own data pagination did not finish");
+/** Where a paused download continues: the next page's cursor, the next part and what came so far. */
+interface DownloadResume {
+  after: string;
+  part: number;
+  saved: number;
 }
 
 /**
+ * A short tag of the signed-in account (FNV-1a over its lowercased address), so a paused download
+ * belongs to the account that paused it: another account in the same browser never continues it.
+ * It is a key, not a secret, and keeps the address itself out of storage.
+ */
+export function accountTag(email: string): string {
+  let hash = 0x811c9dc5;
+  for (const char of email.trim().toLowerCase()) {
+    hash ^= char.codePointAt(0) ?? 0;
+    hash = Math.imul(hash, 0x01000193) >>> 0;
+  }
+  return hash.toString(36);
+}
+
+const resumeKey = (account: string, artifactId: string) =>
+  `portifact.sharedData.download.${account}.${artifactId}`;
+
+function readResume(account: string | null, artifactId: string): DownloadResume | null {
+  if (account === null) return null;
+  try {
+    // A record from before downloads were kept per account names nobody: it is dropped.
+    localStorage.removeItem(`portifact.sharedData.download.${artifactId}`);
+    const raw = JSON.parse(
+      localStorage.getItem(resumeKey(account, artifactId)) ?? "null",
+    ) as unknown;
+    const value = raw as Partial<DownloadResume> | null;
+    if (
+      typeof value?.after === "string" &&
+      Number.isInteger(value.part) &&
+      Number.isInteger(value.saved)
+    ) {
+      return value as DownloadResume;
+    }
+  } catch {
+    // Without storage a paused download continues only until the page reloads.
+  }
+  return null;
+}
+
+function writeResume(account: string | null, artifactId: string, resume: DownloadResume | null) {
+  if (account === null) return;
+  try {
+    if (resume === null) localStorage.removeItem(resumeKey(account, artifactId));
+    else localStorage.setItem(resumeKey(account, artifactId), JSON.stringify(resume));
+  } catch {
+    // Kept in the page's state only.
+  }
+}
+
+/** Whether a failure is the person's daily allowance being spent, which comes back tomorrow. */
+const allowanceSpent = (error: unknown) =>
+  error instanceof ApiFailure && error.code === "rate_limited";
+
+type Pause = { reason: "allowance" | "error"; count: number } | null;
+
+/**
  * What the person saved in the artifact: download it as JSON Lines (their own documents, as
- * stored, untrusted text) or delete it, whether or not a grant is still open.
+ * stored, untrusted text) or delete it, whether or not a grant is still open. The download is
+ * charged to the person's own daily allowance in the artifact, which a large dataset spends: it
+ * then saves what it got as a part and continues from its cursor on the next click (kept in this
+ * browser). Deleting is an erasure the server runs to the end on its own (`erasure` on the item),
+ * so it goes on when the page closes and no allowance stops it.
  */
 function OwnData({ item }: { item: DataGrantView }) {
   const t = useT();
   const announce = useAnnounce();
   const { api, save } = useDashboard();
   const [confirming, setConfirming] = useState(false);
+  const account = useQuery({ queryKey: ACCOUNT_QUERY, queryFn: () => api.account() });
+  const owner = account.data?.email ? accountTag(account.data.email) : null;
+  const [resume, setResume] = useState<DownloadResume | null>(null);
+  useEffect(() => setResume(readResume(owner, item.artifactId)), [owner, item.artifactId]);
+  const [downloadPause, setDownloadPause] = useState<Pause>(null);
   const name = item.artifactName ?? item.host;
+  const base = safeFileName(name);
+  const keep = (next: DownloadResume | null) => {
+    writeResume(owner, item.artifactId, next);
+    setResume(next);
+  };
   const download = useMutation({
-    mutationFn: () => ownRows(api, item.artifactId),
-    onSuccess: (rows) => {
-      if (rows.length === 0) {
-        announce(t("sharedData.nothingSaved", { name }));
+    mutationFn: async () => {
+      const from = resume;
+      const rows: { collection: string; id: string }[] = [];
+      let after = from?.after ?? null;
+      let failure: unknown = null;
+      let finished = false;
+      try {
+        for (let page = 0; page < MAX_PAGES; page++) {
+          const answer = await api.ownData(item.artifactId, after);
+          rows.push(...answer.rows);
+          after = answer.next;
+          if (after === null) {
+            finished = true;
+            break;
+          }
+        }
+      } catch (error) {
+        failure = error;
+      }
+      // Nothing came and nothing is kept: an ordinary failure.
+      if (!finished && rows.length === 0 && from === null)
+        throw failure ?? new Error("nothing came back");
+      return { from, rows, after, failure, finished };
+    },
+    onError: () => setDownloadPause(null),
+    onSuccess: ({ from, rows, after, failure, finished }) => {
+      const part = from?.part ?? 1;
+      const saved = (from?.saved ?? 0) + rows.length;
+      const fileName =
+        finished && part === 1 ? `${base}-my-data.jsonl` : `${base}-my-data-part-${part}.jsonl`;
+      if (rows.length > 0) {
+        const text = rows.map((row) => JSON.stringify(row)).join("\n");
+        save({ fileName, blob: new Blob([`${text}\n`], { type: "application/jsonl" }) });
+      }
+      if (finished) {
+        keep(null);
+        setDownloadPause(null);
+        announce(
+          saved === 0
+            ? t("sharedData.nothingSaved", { name })
+            : rows.length === 0
+              ? t("sharedData.downloadedAll", { name, count: saved })
+              : t("sharedData.downloaded", { file: fileName }),
+        );
         return;
       }
-      const fileName = `${safeFileName(name)}-my-data.jsonl`;
-      const text = rows.map((row) => JSON.stringify(row)).join("\n");
-      save({ fileName, blob: new Blob([`${text}\n`], { type: "application/jsonl" }) });
-      announce(t("sharedData.downloaded", { file: fileName }));
+      if (rows.length > 0 && after !== null) keep({ after, part: part + 1, saved });
+      const pause: Pause = {
+        reason: allowanceSpent(failure) ? "allowance" : "error",
+        count: saved,
+      };
+      setDownloadPause(pause);
+      announce(
+        t(
+          pause.reason === "allowance"
+            ? "sharedData.downloadPausedAllowance"
+            : "sharedData.downloadPausedError",
+          {
+            count: saved,
+          },
+        ),
+      );
     },
   });
+  const restart = () => {
+    keep(null);
+    setDownloadPause(null);
+    download.reset();
+  };
+  const queryClient = useQueryClient();
+  const erasure = item.erasure;
+  const erasing = erasure?.state === "running";
+  // One key per confirmed action, kept for its retries, so a retried request never starts a
+  // second erasure that would reach what was saved since.
+  const [eraseKey, setEraseKey] = useState<string | null>(null);
   const remove = useMutation({
-    mutationFn: async () => {
-      const rows = await ownRows(api, item.artifactId);
-      for (const row of rows) await api.deleteOwnDocument(item.artifactId, row.collection, row.id);
-      return rows.length;
-    },
-    onSuccess: (count) => {
+    mutationFn: (key: string) => api.eraseOwnData(item.artifactId, key),
+    onSuccess: () => {
       setConfirming(false);
-      announce(t("sharedData.deleted", { name, count }));
+      setEraseKey(null);
+      announce(t("sharedData.eraseStarted", { name }));
+      void queryClient.invalidateQueries({ queryKey: DATA_GRANTS_QUERY });
     },
   });
   return (
@@ -182,19 +313,47 @@ function OwnData({ item }: { item: DataGrantView }) {
         icon={<Download className="size-4" />}
         busy={download.isPending}
         onClick={() => download.mutate()}
-        aria-label={t("sharedData.downloadNamed", { name })}
+        aria-label={t(resume ? "sharedData.downloadContinueNamed" : "sharedData.downloadNamed", {
+          name,
+        })}
       >
-        {t("sharedData.download")}
+        {t(resume ? "sharedData.downloadContinue" : "sharedData.download")}
       </Button>
+      {resume ? (
+        <Button
+          intent="secondary"
+          icon={<RotateCcw className="size-4" />}
+          disabled={download.isPending}
+          onClick={restart}
+          aria-label={t("sharedData.downloadRestartNamed", { name })}
+        >
+          {t("sharedData.downloadRestart")}
+        </Button>
+      ) : null}
       <Button
         intent="danger"
         icon={<Trash2 className="size-4" />}
+        disabled={erasing}
         onClick={() => setConfirming(true)}
         aria-label={t("sharedData.deleteMineNamed", { name })}
       >
         {t("sharedData.deleteMine")}
       </Button>
-      {download.isError ? (
+      {erasure ? <ErasureState erasure={erasure} /> : null}
+      {downloadPause ? (
+        <Callout
+          tone="info"
+          title={t("sharedData.downloadPaused")}
+          icon={<CircleAlert className="size-5" />}
+        >
+          {t(
+            downloadPause.reason === "allowance"
+              ? "sharedData.downloadPausedAllowance"
+              : "sharedData.downloadPausedError",
+            { count: downloadPause.count },
+          )}
+        </Callout>
+      ) : download.isError ? (
         <Callout
           tone="error"
           title={t("sharedData.downloadFailed")}
@@ -211,7 +370,11 @@ function OwnData({ item }: { item: DataGrantView }) {
         confirmIcon={<Trash2 className="size-4" />}
         tone="danger"
         busy={remove.isPending}
-        onConfirm={() => remove.mutate()}
+        onConfirm={() => {
+          const key = eraseKey ?? `${Date.now()}.${crypto.randomUUID().replaceAll("-", "")}`;
+          setEraseKey(key);
+          remove.mutate(key);
+        }}
         onCancel={() => setConfirming(false)}
       >
         {t("sharedData.deleteBody")}
@@ -226,6 +389,26 @@ function OwnData({ item }: { item: DataGrantView }) {
         ) : null}
       </ConfirmDialog>
     </>
+  );
+}
+
+/** Where the person's erasure in the artifact stands: running with its count, finished or failed. */
+function ErasureState({ erasure }: { erasure: OwnErasureView }) {
+  const t = useT();
+  const date = useFormatDate();
+  const text =
+    erasure.state === "running"
+      ? t("sharedData.erasing", { count: erasure.documents })
+      : erasure.state === "done"
+        ? t("sharedData.erased", {
+            date: date(erasure.finishedAt ?? erasure.requestedAt),
+            count: erasure.documents,
+          })
+        : t("sharedData.eraseFailed");
+  return (
+    <p className="text-sm text-text-muted" role="status">
+      {text}
+    </p>
   );
 }
 
@@ -244,7 +427,7 @@ function AskOwner({ item }: { item: DataGrantView }) {
     mutationFn: () => api.requestDataRights(item.artifactId, kind),
     onSuccess: () => {
       setOpen(false);
-      announce(t("sharedData.askSent", { name }));
+      announce(t("sharedData.askReceived", { name }));
     },
   });
   return (

@@ -27,7 +27,7 @@ export const ja = {
     "ページが知るのはこのアーティファクト用の ID だけです。名前、メールアドレス、アカウントは知りません。",
   "dataGrant.anonymous.lasts": "このブラウザーで {days} 日間有効です。",
   "dataGrant.anonymous.noAccount":
-    "アカウントがないため、Portifact は保存した内容を後で表示したり削除したりできません。このブラウザーが保持している間、ページ自体だけが行えます。",
+    "アカウントがない場合、Portifact はあなた自身が開ける履歴を保持しません。この許可が有効な間は、ページで保存した内容を確認できます。この artifact を管理する人や privacy@portifact.com に連絡することもできます。どのデータがあなたに関係するかを確認できる場合、Portifact が対応します。",
   "dataGrant.anonymous.signIn": "代わりにサインイン",
   "dataGrant.anonymous.signInTitle": "保存するにはサインイン",
   "dataGrant.anonymous.closed":
@@ -47,8 +47,19 @@ export const ja = {
   "sharedData.askAccess": "保存した内容のコピー",
   "sharedData.askErasure": "保存した内容の削除",
   "sharedData.askSend": "依頼を送信",
-  "sharedData.askSent": "{name} についての依頼を送信しました",
   "sharedData.askFailed": "依頼を送信できませんでした",
+  "sharedData.askReceived":
+    "{name} についての依頼を受け付けました。管理者にはできるだけ早くメールで届けます",
+  "sharedData.downloadContinue": "ダウンロードを続ける",
+  "sharedData.downloadContinueNamed": "ダウンロードを続ける: {name} に保存した内容",
+  "sharedData.downloadRestart": "最初からやり直す",
+  "sharedData.downloadRestartNamed": "最初からやり直す: {name} のダウンロード",
+  "sharedData.downloadPaused": "ダウンロードを一時停止しました",
+  "sharedData.downloadPausedAllowance":
+    "{count, plural, one {これまでに # 件をダウンロードしました。} other {これまでに # 件をダウンロードしました。}} このアーティファクトでのあなたのデータの本日の上限に達しました。明日の UTC 午前 0 時以降に続けると、止まったところから再開します。",
+  "sharedData.downloadPausedError":
+    "{count, plural, one {これまでに # 件をダウンロードしました。} other {これまでに # 件をダウンロードしました。}} 残りはダウンロードできませんでした。続けると、止まったところから再開します。",
+  "sharedData.downloadedAll": "{name} に保存した内容をすべてダウンロードしました（{count} 件）",
   "dataGrant.viewer.saving": "このページは入力内容を保存しています",
   "dataGrant.viewer.savingHint":
     "表示名とこの artifact 専用の ID であなたを認識します。いつでも止められます。",
@@ -64,8 +75,14 @@ export const ja = {
   "sharedData.deleteTitle": "{name} に保存した内容を削除しますか？",
   "sharedData.deleteBody":
     "そこで作成したドキュメントは、他の人が後から加えた編集も含めて完全に削除されます。他の人のドキュメントへのあなたの編集は、名前なしで残ります。",
-  "sharedData.deleted": "{name} に保存した内容を削除しました（{count} 件）",
   "sharedData.deleteFailed": "削除を完了できませんでした",
+  "sharedData.eraseStarted":
+    "{name} に保存した内容を削除しています。このページを閉じても続きます。",
+  "sharedData.erasing":
+    "{count, plural, one {保存した内容を削除中: これまでに # 件} other {保存した内容を削除中: これまでに # 件}}",
+  "sharedData.erased":
+    "{count, plural, one {{date} に保存した内容を削除しました（# 件）} other {{date} に保存した内容を削除しました（# 件）}}",
+  "sharedData.eraseFailed": "保存した内容の削除を完了できませんでした。もう一度依頼できます。",
   "dataGrant.frame.granted": "このページで入力内容を保存できるようになりました",
   "dataGrant.frame.saving": "選択を保存しています",
   "dataGrant.frame.unavailable": "このフレームでは保存できません",
@@ -90,6 +107,13 @@ export const ja = {
   "dataGrant.unavailable": "このリクエストは使用できません",
   "dataGrant.unavailableHint": "artifact を開き直して、そこから保存を選んでください。",
   "dataGrant.failed": "許可を完了できませんでした",
+  "dataGrant.legal.terms": "利用規約",
+  "dataGrant.legal.acceptableUse": "利用ポリシー",
+  "dataGrant.legal.privacy": "プライバシーポリシー",
+  "dataGrant.legal.notice":
+    "このページは Portifact がホストし、この操作画面は Portifact が表示しています。Portifact が保管する内容は{privacy}に記載されています。リンクは新しいタブで開きます。",
+  "dataGrant.legal.statement":
+    "「許可する」を選ぶことで、あなたは18歳以上であることを確認し、ここに保存する内容について{terms}と{acceptableUse}に同意します。リンクは新しいタブで開きます。",
   "sharedData.title": "共有したデータ",
   "sharedData.description":
     "あなたを認識し、入力内容を保存できる artifact のページです。取り消すと 1 分以内に止まり、保存した内容は artifact に残ります。",

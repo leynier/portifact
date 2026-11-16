@@ -781,6 +781,7 @@ export const OUTBOX_TOPICS = [
   "data_audit",
   "data_rights_request",
   "data_reset",
+  "data_own_erasure",
 ] as const;
 
 /**
@@ -1069,6 +1070,27 @@ export const moderationNoticeSends = sqliteTable(
 );
 
 /**
+ * The artifact data authors an operator decision about an artifact names (docs/operations.md,
+ * "Reports"): the signed-in people whose documents caused the restriction, by the visitor ID a
+ * document carries (`visitor`) or by their account (`account`), recorded in the decision's batch.
+ * The `moderation_notice` job tells each one the author journal names in the artifact; anyone else
+ * (an anonymous writer, a mistaken name, an erased author) is told nothing. Account deletion
+ * deletes the `account` rows; the rows go with their decision.
+ */
+export const moderationDecisionAuthors = sqliteTable(
+  "moderation_decision_authors",
+  {
+    decisionId: text("decision_id").notNull(),
+    kind: text("kind", { enum: ["visitor", "account"] }).notNull(),
+    author: text("author").notNull(),
+  },
+  (t) => [
+    primaryKey({ columns: [t.decisionId, t.kind, t.author] }),
+    index("moderation_decision_authors_account_idx").on(t.author).where(sql`${t.kind} = 'account'`),
+  ],
+);
+
+/**
  * Legal holds (docs/operations.md, "Legal holds"): an artifact the operator must preserve for an
  * authority. While a hold is open (`released_at` null) the artifact stays suspended, nothing
  * deletes it, moves it or prunes its versions, and its content is served to nobody, its owner
@@ -1279,14 +1301,106 @@ export const dataGrantCodes = sqliteTable(
 );
 
 /**
+ * A person's request to the people who manage an artifact about what they saved there (decision
+ * 0026, "Moderation and law"), named only by their visitor ID. Kept until it reached someone:
+ * `pending` while the `data_rights_request` job (subject: the request's ID) still has admins to
+ * email, waiting out a spent email cycle; `delivered` once one got it; `undeliverable` when every
+ * admin was suppressed or there was none, listed for the operator (`data-rights-requests`) until
+ * they handle it another way and mark it `resolved`. Delivered and resolved rows go 30 days later
+ * (`pruneDataRightsRequests`); the rest stay.
+ */
+export const dataRightsRequests = sqliteTable(
+  "data_rights_requests",
+  {
+    id: text("id").primaryKey(),
+    artifactId: text("artifact_id")
+      .notNull()
+      .references(() => artifacts.id, { onDelete: "cascade" }),
+    visitorId: text("visitor_id").notNull(),
+    kind: text("kind", { enum: ["access", "erasure"] }).notNull(),
+    state: text("state", {
+      enum: ["pending", "delivered", "undeliverable", "resolved"],
+    }).notNull(),
+    /** Why nobody got it: `suppressed` (every admin's address) or `no_recipient`. */
+    reason: text("reason"),
+    recipients: integer("recipients").notNull().default(0),
+    createdAt: createdAt(),
+    /** When it was delivered, found undeliverable or resolved. */
+    settledAt: timestamp("settled_at"),
+  },
+  (t) => [
+    index("data_rights_requests_state_idx").on(t.state, t.settledAt),
+    index("data_rights_requests_artifact_idx").on(t.artifactId),
+  ],
+);
+
+/**
+ * Each admin a rights request is emailed to. A send is `claimed` (with the claiming run's `token`)
+ * before the provider is called and `sent` only after the provider accepted it, so a claim is
+ * never counted as a delivery. A claim younger than `DATA_RIGHTS_CLAIM_LEASE_MS` is a send in
+ * flight, which keeps the request from settling; an older one is uncertain (the run died around
+ * the send) and is claimed again and resent. Rows stay until the request is pruned, so a late run
+ * never emails an admin already told.
+ */
+export const dataRightsRequestSends = sqliteTable(
+  "data_rights_request_sends",
+  {
+    requestId: text("request_id")
+      .notNull()
+      .references(() => dataRightsRequests.id, { onDelete: "cascade" }),
+    userId: text("user_id").notNull(),
+    state: text("state", { enum: ["claimed", "sent"] }).notNull(),
+    token: text("token").notNull(),
+    claimedAt: timestamp("claimed_at").notNull(),
+    sentAt: timestamp("sent_at"),
+  },
+  (t) => [primaryKey({ columns: [t.requestId, t.userId] })],
+);
+
+/**
+ * A person's erasure of everything they saved in one artifact (decision 0026, "A person's
+ * rights"), keyed by the visitor ID the author journal names them by there, never the account: the
+ * `data_own_erasure` job (subject: the artifact) asks the documents object for bounded chunks,
+ * protected work that no allowance or budget step stops, until none is left. `write_id` is the
+ * request that started the current run, which its job carries. "Data you shared" shows the state;
+ * finished rows go 30 days later (`pruneDataRightsRequests`).
+ */
+export const dataOwnErasures = sqliteTable(
+  "data_own_erasures",
+  {
+    artifactId: text("artifact_id")
+      .notNull()
+      .references(() => artifacts.id, { onDelete: "cascade" }),
+    visitorId: text("visitor_id").notNull(),
+    /** `failed` only when the object refused it as no job can fix (a defect); asking again restarts. */
+    state: text("state", { enum: ["running", "done", "failed"] }).notNull(),
+    writeId: text("write_id").notNull(),
+    /**
+     * The key of the confirmed action that started this run (the dashboard's Idempotency-Key): a
+     * retried request with it answers this erasure instead of starting another one.
+     */
+    requestKey: text("request_key").notNull(),
+    documents: integer("documents").notNull().default(0),
+    edits: integer("edits").notNull().default(0),
+    requestedAt: timestamp("requested_at").notNull(),
+    finishedAt: timestamp("finished_at"),
+  },
+  (t) => [
+    primaryKey({ columns: [t.artifactId, t.visitorId] }),
+    index("data_own_erasures_finished_idx").on(t.state, t.finishedAt),
+  ],
+);
+
+/**
  * Anonymous grants of artifact data (decision 0026, delivery 9, "Anonymous writers"): a visitor
  * without an account allowed a public artifact's page to save what they enter, after the human
  * check. Nobody is behind the row: its `visitor_id` is new for each grant and never claimed in the
  * author journal, and it holds no address. Each grant carries its one-use code (hashes of the
  * code and of the beginning browser's nonce, bound to the host); the guarded update that sets
- * `used_at` is the redemption. The content Worker renews the cookie's claims against this row and
- * the artifact still open to anonymous writers every 60 seconds. Rows go with the artifact and
- * 30 days after they ended (`pruneDataGrants`).
+ * `used_at` is the redemption, and clears both hashes, as the prune does once a code expired
+ * unused. It also records the terms version the visitor agreed to. The content Worker renews the
+ * cookie's claims against this row and the artifact still open to anonymous writers every 60
+ * seconds. Rows go with the artifact and 30 days after they ended (`pruneDataGrants`).
  */
 export const dataAnonymousGrants = sqliteTable(
   "data_anonymous_grants",
@@ -1297,11 +1411,18 @@ export const dataAnonymousGrants = sqliteTable(
       .references(() => artifacts.id, { onDelete: "cascade" }),
     visitorId: text("visitor_id").notNull(),
     host: text("host").notNull(),
-    codeHash: text("code_hash").notNull(),
-    nonceHash: text("nonce_hash").notNull(),
+    /** The one-use code's hash; cleared (null) at redemption and once the code expired unused. */
+    codeHash: text("code_hash"),
+    /** The beginning browser's nonce hash; cleared with `code_hash`. */
+    nonceHash: text("nonce_hash"),
     codeExpiresAt: timestamp("code_expires_at").notNull(),
     usedAt: timestamp("used_at"),
     expiresAt: timestamp("expires_at").notNull(),
+    /**
+     * The `TERMS_VERSION` the visitor agreed to by choosing Allow; a renewal grants write only while
+     * it is the current one. Null for grants issued before it was recorded: read only.
+     */
+    termsVersion: text("terms_version"),
     createdAt: createdAt(),
   },
   (t) => [
@@ -1311,6 +1432,29 @@ export const dataAnonymousGrants = sqliteTable(
     // The prune's unredeemed selection, led by its own time.
     index("data_anonymous_grants_unused_idx").on(t.codeExpiresAt).where(sql`${t.usedAt} is null`),
   ],
+);
+
+/**
+ * Claims of the author journal cleanup (decision 0026, "Author erasure"): a row per journal key
+ * being deleted, holding the entry it deletes. The claim is inserted only while nothing protects
+ * the entry (no open hold on the artifact, no `data_reconcile` job waiting), the R2 delete follows,
+ * and the finalize deletes the row only while that is still true; a protection that committed in
+ * between leaves the row, from which the entry is written back. So the D1 finalize, not the R2
+ * delete, is where the deletion happens, and a protection that wins it keeps the mapping. A row a
+ * crash left is finished by a later run (`pruneJournalEntries`).
+ */
+export const journalDeletions = sqliteTable(
+  "journal_deletions",
+  {
+    key: text("key").primaryKey(),
+    artifactId: text("artifact_id").notNull(),
+    /** The entry as it was read (JSON), written back if a protection wins. */
+    entry: text("entry").notNull(),
+    /** A per-run random token: only the run that claimed finalizes on its own path. */
+    claim: text("claim").notNull(),
+    claimedAt: timestamp("claimed_at").notNull(),
+  },
+  (t) => [index("journal_deletions_claimed_idx").on(t.claimedAt)],
 );
 
 /**

@@ -54,6 +54,7 @@ export const OutboxTopic = z.enum([
   "data_audit",
   "data_rights_request",
   "data_reset",
+  "data_own_erasure",
 ]);
 export type OutboxTopic = z.infer<typeof OutboxTopic>;
 
@@ -327,6 +328,20 @@ export const DataAuthorErasurePayload = z.strictObject({
   visitorId: VisitorId,
 });
 export type DataAuthorErasurePayload = z.infer<typeof DataAuthorErasurePayload>;
+
+/**
+ * Payload of a `data_own_erasure` job: a person's erasure of what they saved in one artifact, by
+ * the visitor ID the journal names them by and the request (`write_id`) that started this run.
+ */
+export const DataOwnErasurePayload = z.strictObject({
+  visitorId: VisitorId,
+  writeId: z.string().min(16).max(64),
+  /** The request's time: the object erases only what was saved or edited at or before it. */
+  before: z.number().int().nonnegative(),
+  /** Where the next chunk's edit scan starts; absent from the beginning. */
+  editsAfter: z.object({ collection: z.string(), id: z.string() }).nullable().optional(),
+});
+export type DataOwnErasurePayload = z.infer<typeof DataOwnErasurePayload>;
 
 /**
  * Payload of a `data_reconcile` job (one per region, written by the operator after a restore):

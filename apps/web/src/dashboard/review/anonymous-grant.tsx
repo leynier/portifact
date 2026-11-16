@@ -1,20 +1,22 @@
 // The consent control for a visitor without an account (decision 0026, delivery 9, "Anonymous
 // writers"): drawn by Portifact like a person's, it says the page learns only an ID for this
 // artifact, who reads what is saved, how long it lasts and that nothing ties it to an account, and
-// it runs the human check before Allow. The Turnstile widget runs invisibly ("interaction-only")
-// from the moment the control shows, so most visitors already hold a token when they choose; the
+// it runs the human check on Allow. Portifact's notice and the sign-in-wrap statement beside Allow
+// (`grant-legal.tsx`) come first: nothing is sent to Cloudflare while the visitor only reads, so
+// the Turnstile widget starts invisibly ("interaction-only") when they choose Allow, and the
 // challenge appears only when Cloudflare asks for an interaction. The token goes once, with the
 // request for the code; verification stays on the server and fails closed.
 import type { AnonymousDataGrantControl } from "@portifact/contracts";
 import { Button, buttonClasses, Callout } from "@portifact/ui";
 import { CircleAlert, LogIn, ShieldCheck } from "lucide-react";
-import { type ReactNode, useEffect, useRef, useState } from "react";
+import { type ReactNode, useEffect, useId, useRef, useState } from "react";
 import { type HumanGate, humanGate } from "../../auth/human-gate.ts";
 import { ApiFailure } from "../api.ts";
 import { useAnnounce, useDashboard, useT } from "../context.tsx";
 import { errorMessage } from "../screens/artifact-list.tsx";
+import { GrantNotice, GrantTerms } from "./grant-legal.tsx";
 
-/** The human check of an anonymous grant: started at once, its token taken on Allow. */
+/** The human check of an anonymous grant: started on Allow, never before, its token taken then. */
 function useGrantHumanCheck(): { take(): Promise<string | undefined>; field: ReactNode } {
   const t = useT();
   const announce = useAnnounce();
@@ -37,8 +39,8 @@ function useGrantHumanCheck(): { take(): Promise<string | undefined>; field: Rea
         if (visible) announceRef.current(t("dataGrant.anonymous.humanNeeded"));
       },
     });
+    // Not prepared here: the challenge starts with `take()`, after the visitor chose Allow.
     gate.current = started;
-    started.prepare();
     return () => {
       alive = false;
       started.stop();
@@ -92,6 +94,7 @@ export function AnonymousConsentControl({
   onDecline: () => void;
 }) {
   const t = useT();
+  const termsId = useId();
   const human = useGrantHumanCheck();
   const [checking, setChecking] = useState(false);
   const [noCheck, setNoCheck] = useState(false);
@@ -121,6 +124,7 @@ export function AnonymousConsentControl({
         <li>{t("dataGrant.anonymous.lasts", { days: control.grantDays })}</li>
         <li>{t("dataGrant.anonymous.noAccount")}</li>
       </ul>
+      <GrantNotice />
       {human.field}
       {error !== null || failure ? (
         <Callout
@@ -131,9 +135,11 @@ export function AnonymousConsentControl({
           {error ?? anonymousFailure(t, failure)}
         </Callout>
       ) : null}
+      <GrantTerms id={termsId} />
       <div className="flex flex-wrap gap-3">
         <Button
           intent="primary"
+          aria-describedby={termsId}
           onClick={() => void allow()}
           busy={busy || checking}
           icon={<ShieldCheck className="size-4" aria-hidden="true" />}

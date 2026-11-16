@@ -31,8 +31,12 @@ export async function user(name = "Someone"): Promise<{ id: string; email: strin
   return { id, email };
 }
 
-/** A dashboard session signed in at `createdAt`. */
-export async function session(userId: string, createdAt = NOW): Promise<string> {
+/** A dashboard session signed in at `createdAt`, expiring at `expiresAt` (a week after `NOW`). */
+export async function session(
+  userId: string,
+  createdAt = NOW,
+  expiresAt = NOW + 7 * DAY,
+): Promise<string> {
   const id = `s_${crypto.randomUUID()}`;
   await db()
     .insert(schema.sessions)
@@ -42,7 +46,7 @@ export async function session(userId: string, createdAt = NOW): Promise<string> 
       userId,
       createdAt: new Date(createdAt),
       updatedAt: new Date(createdAt),
-      expiresAt: new Date(NOW + 7 * DAY),
+      expiresAt: new Date(expiresAt),
     });
   return id;
 }

@@ -31,7 +31,7 @@ export const fr = {
     "La page ne connaît qu'un identifiant pour cet artefact : ni nom, ni e-mail, ni compte.",
   "dataGrant.anonymous.lasts": "Cela dure {days} jours dans ce navigateur.",
   "dataGrant.anonymous.noAccount":
-    "Sans compte, Portifact ne peut pas vous montrer ni supprimer plus tard ce que vous avez enregistré. Seule la page le peut, tant que ce navigateur le conserve.",
+    "Sans compte, Portifact ne conserve aucun historique que vous pouvez ouvrir vous-même. La page peut afficher ce que vous avez enregistré tant que cette autorisation dure. Vous pouvez aussi contacter les personnes qui gèrent cet artifact ou privacy@portifact.com ; Portifact vous aide lorsqu’il peut vérifier quelles données vous concernent.",
   "dataGrant.anonymous.signIn": "Me connecter plutôt",
   "dataGrant.anonymous.signInTitle": "Connectez-vous pour enregistrer",
   "dataGrant.anonymous.closed":
@@ -51,8 +51,21 @@ export const fr = {
   "sharedData.askAccess": "Une copie de ce que j'ai enregistré",
   "sharedData.askErasure": "Effacer ce que j'ai enregistré",
   "sharedData.askSend": "Envoyer la demande",
-  "sharedData.askSent": "Votre demande concernant {name} a été envoyée",
   "sharedData.askFailed": "La demande n'a pas été envoyée",
+  "sharedData.askReceived":
+    "Votre demande concernant {name} a été reçue. Les personnes qui le gèrent recevront un e-mail dès que possible",
+  "sharedData.downloadContinue": "Reprendre le téléchargement",
+  "sharedData.downloadContinueNamed":
+    "Reprendre le téléchargement de ce que vous avez enregistré dans {name}",
+  "sharedData.downloadRestart": "Recommencer",
+  "sharedData.downloadRestartNamed": "Recommencer le téléchargement de {name}",
+  "sharedData.downloadPaused": "Téléchargement en pause",
+  "sharedData.downloadPausedAllowance":
+    "{count, plural, one {# document téléchargé jusqu'ici.} other {# documents téléchargés jusqu'ici.}} Le quota du jour pour vos données dans cet artefact est épuisé. Reprenez demain, après minuit UTC, et le téléchargement continuera là où il s'est arrêté.",
+  "sharedData.downloadPausedError":
+    "{count, plural, one {# document téléchargé jusqu'ici.} other {# documents téléchargés jusqu'ici.}} Le reste n'a pas été téléchargé. Reprenez, et le téléchargement continuera là où il s'est arrêté.",
+  "sharedData.downloadedAll":
+    "Tout ce que vous avez enregistré dans {name} a été téléchargé ({count} documents)",
   "dataGrant.viewer.saving": "Cette page enregistre ce que vous saisissez",
   "dataGrant.viewer.savingHint":
     "Elle vous connaît par votre nom affiché et un identifiant propre à cet artifact. Vous pouvez l'arrêter à tout moment.",
@@ -68,9 +81,15 @@ export const fr = {
   "sharedData.deleteTitle": "Supprimer ce que vous avez enregistré dans {name} ?",
   "sharedData.deleteBody":
     "Chaque document que vous y avez créé est supprimé définitivement, avec les modifications faites ensuite par d'autres. Vos modifications des documents d'autres personnes restent, sans votre nom.",
-  "sharedData.deleted":
-    "Ce que vous avez enregistré dans {name} a été supprimé ({count} documents)",
   "sharedData.deleteFailed": "La suppression n'a pas abouti",
+  "sharedData.eraseStarted":
+    "Suppression de ce que vous avez enregistré dans {name}. Elle continue même si vous fermez cette page.",
+  "sharedData.erasing":
+    "{count, plural, one {Suppression de ce que vous avez enregistré : # document jusqu'ici} other {Suppression de ce que vous avez enregistré : # documents jusqu'ici}}",
+  "sharedData.erased":
+    "{count, plural, one {Ce que vous avez enregistré a été supprimé le {date} (# document)} other {Ce que vous avez enregistré a été supprimé le {date} (# documents)}}",
+  "sharedData.eraseFailed":
+    "La suppression de ce que vous avez enregistré n'a pas abouti. Vous pouvez la redemander.",
   "dataGrant.frame.granted": "Cette page peut maintenant enregistrer ce que vous saisissez",
   "dataGrant.frame.saving": "Enregistrement de votre choix",
   "dataGrant.frame.unavailable": "L'enregistrement n'est pas disponible dans ce cadre",
@@ -97,6 +116,13 @@ export const fr = {
   "dataGrant.unavailable": "Cette demande ne peut pas être utilisée",
   "dataGrant.unavailableHint": "Rouvrez l'artifact et choisissez d'enregistrer depuis celui-ci.",
   "dataGrant.failed": "L'autorisation n'a pas abouti",
+  "dataGrant.legal.terms": "Conditions d’utilisation",
+  "dataGrant.legal.acceptableUse": "Politique d’utilisation acceptable",
+  "dataGrant.legal.privacy": "Politique de confidentialité",
+  "dataGrant.legal.notice":
+    "Portifact héberge cette page et affiche ce contrôle. La {privacy} indique ce que Portifact conserve. Le lien s’ouvre dans un nouvel onglet.",
+  "dataGrant.legal.statement":
+    "En choisissant Autoriser, vous confirmez avoir 18 ans ou plus et accepter les {terms} et la {acceptableUse} pour ce que vous enregistrez ici. Les liens s’ouvrent dans un nouvel onglet.",
   "sharedData.title": "Données partagées",
   "sharedData.description":
     "Pages d'artifacts qui peuvent vous connaître et enregistrer ce que vous saisissez. La révocation prend effet en une minute ; ce que vous avez enregistré reste avec l'artifact.",

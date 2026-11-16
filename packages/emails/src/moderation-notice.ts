@@ -1,6 +1,7 @@
 // The statement of reasons (docs/operations.md, "Reports"): the email the people who manage an
-// artifact, an account or a brand get when the operator suspends or reinstates it. It says what
-// was restricted, its scope and duration, the category, whether it followed a notice or the
+// artifact, an account or a brand get when the operator suspends or reinstates it, and the
+// variant for the signed-in authors of an artifact's data the operator named. It says what was
+// restricted, its scope and duration, the category, whether it followed a notice or the
 // operator's own review, that a person decided, the facts and the ground the operator wrote
 // (shown as written, always escaped) and how to ask for a review. The fixed parts are in the
 // recipient's language; the operator's text is in the language the operator wrote it in. A
@@ -32,6 +33,11 @@ export interface ModerationNoticeInput {
   decidedAt: number;
   /** Where the recipient sees it in the dashboard. */
   dashboardUrl: string;
+  /**
+   * Who the email is for: a person who manages the content (the default), or a signed-in author
+   * of the artifact's data the operator named (an artifact decision only).
+   */
+  audience?: "manager" | "data_author" | undefined;
   locale?: LocaleCode | undefined;
 }
 
@@ -60,6 +66,16 @@ export interface ModerationNoticeText {
   open: string;
   openLink: string;
   footer: string;
+  /** What a signed-in author of an artifact's data reads instead of the managers' parts. */
+  dataAuthor: {
+    suspendSubject: (label: string) => string;
+    liftSubject: (label: string) => string;
+    suspendWhat: (label: string) => string;
+    liftWhat: (label: string) => string;
+    open: string;
+    openLink: string;
+    footer: string;
+  };
   reasons: { readonly [reason in AbuseReason]: string };
 }
 
@@ -111,6 +127,18 @@ export const MODERATION_NOTICE_TEXT: { readonly [code in LocaleCode]: Moderation
     openLink: "Open Portifact",
     footer:
       "You received this email because you manage this on Portifact. It is a service notice about a decision on your content or account, so it cannot be turned off.",
+    dataAuthor: {
+      suspendSubject: (l) => `We suspended an artifact where you saved data: ${l}`,
+      liftSubject: (l) => `An artifact where you saved data is no longer suspended: ${l}`,
+      suspendWhat: (l) =>
+        `We suspended the artifact ${l} because of data saved in it, including documents you saved through its page. It is no longer served to anyone and its page cannot read or save data. Your documents are kept, not deleted, and you can still download and delete them from Data you shared.`,
+      liftWhat: (l) =>
+        `We lifted the suspension of the artifact ${l}, where you saved data through its page. Its page can read and save data again as its managers set it up.`,
+      open: "See what you saved:",
+      openLink: "Data you shared",
+      footer:
+        "You received this email because you saved data in this artifact with your Portifact account. It is a service notice about a decision on content you saved, so it cannot be turned off.",
+    },
     reasons: {
       phishing: "phishing or a fake sign-in page",
       malware: "malware, exploits or cryptocurrency mining",
@@ -173,6 +201,18 @@ export const MODERATION_NOTICE_TEXT: { readonly [code in LocaleCode]: Moderation
     openLink: "Abrir Portifact",
     footer:
       "Recibiste este correo porque gestionas esto en Portifact. Es un aviso del servicio sobre una decisión acerca de tu contenido o tu cuenta, así que no se puede desactivar.",
+    dataAuthor: {
+      suspendSubject: (l) => `Suspendimos un artifact donde guardaste datos: ${l}`,
+      liftSubject: (l) => `Un artifact donde guardaste datos ya no está suspendido: ${l}`,
+      suspendWhat: (l) =>
+        `Suspendimos el artifact ${l} por datos guardados en él, entre ellos documentos que guardaste desde su página. Ya no se muestra a nadie y su página no puede leer ni guardar datos. Tus documentos se conservan, no se borran, y puedes seguir descargándolos y borrándolos desde Datos que compartiste.`,
+      liftWhat: (l) =>
+        `Levantamos la suspensión del artifact ${l}, donde guardaste datos desde su página. Su página puede volver a leer y guardar datos como la configuraron quienes lo gestionan.`,
+      open: "Mira lo que guardaste:",
+      openLink: "Datos que compartiste",
+      footer:
+        "Recibiste este correo porque guardaste datos en este artifact con tu cuenta de Portifact. Es un aviso del servicio sobre una decisión acerca de contenido que guardaste, así que no se puede desactivar.",
+    },
     reasons: {
       phishing: "phishing o una página de inicio de sesión falsa",
       malware: "malware, exploits o minería de criptomonedas",
@@ -235,6 +275,18 @@ export const MODERATION_NOTICE_TEXT: { readonly [code in LocaleCode]: Moderation
     openLink: "Abrir o Portifact",
     footer:
       "Você recebeu este e-mail porque gerencia isto no Portifact. É um aviso do serviço sobre uma decisão a respeito do seu conteúdo ou da sua conta, por isso não pode ser desativado.",
+    dataAuthor: {
+      suspendSubject: (l) => `Suspendemos um artifact onde você salvou dados: ${l}`,
+      liftSubject: (l) => `Um artifact onde você salvou dados não está mais suspenso: ${l}`,
+      suspendWhat: (l) =>
+        `Suspendemos o artifact ${l} por causa de dados salvos nele, incluindo documentos que você salvou pela página dele. Ele não é mais exibido a ninguém e a página dele não pode ler nem salvar dados. Seus documentos são mantidos, não apagados, e você ainda pode baixá-los e apagá-los em Dados que você compartilhou.`,
+      liftWhat: (l) =>
+        `Retiramos a suspensão do artifact ${l}, onde você salvou dados pela página dele. A página dele pode voltar a ler e salvar dados como quem o gerencia configurou.`,
+      open: "Veja o que você salvou:",
+      openLink: "Dados que você compartilhou",
+      footer:
+        "Você recebeu este e-mail porque salvou dados neste artifact com sua conta do Portifact. É um aviso do serviço sobre uma decisão a respeito de conteúdo que você salvou, por isso não pode ser desativado.",
+    },
     reasons: {
       phishing: "phishing ou uma página de login falsa",
       malware: "malware, exploits ou mineração de criptomoedas",
@@ -297,6 +349,20 @@ export const MODERATION_NOTICE_TEXT: { readonly [code in LocaleCode]: Moderation
     openLink: "Ouvrir Portifact",
     footer:
       "Vous avez reçu cet e-mail parce que vous gérez cet élément sur Portifact. C’est un avis de service sur une décision concernant votre contenu ou votre compte : il ne peut pas être désactivé.",
+    dataAuthor: {
+      suspendSubject: (l) =>
+        `Nous avons suspendu un artifact où vous avez enregistré des données : ${l}`,
+      liftSubject: (l) =>
+        `Un artifact où vous avez enregistré des données n’est plus suspendu : ${l}`,
+      suspendWhat: (l) =>
+        `Nous avons suspendu l’artifact ${l} en raison de données enregistrées dans celui-ci, dont des documents que vous avez enregistrés depuis sa page. Il n’est plus servi à personne et sa page ne peut plus lire ni enregistrer de données. Vos documents sont conservés, pas supprimés, et vous pouvez toujours les télécharger et les supprimer depuis Données partagées.`,
+      liftWhat: (l) =>
+        `Nous avons levé la suspension de l’artifact ${l}, où vous avez enregistré des données depuis sa page. Sa page peut de nouveau lire et enregistrer des données comme ses gestionnaires l’ont configurée.`,
+      open: "Voir ce que vous avez enregistré :",
+      openLink: "Données partagées",
+      footer:
+        "Vous avez reçu cet e-mail parce que vous avez enregistré des données dans cet artifact avec votre compte Portifact. C’est un avis de service sur une décision concernant un contenu que vous avez enregistré : il ne peut pas être désactivé.",
+    },
     reasons: {
       phishing: "hameçonnage ou fausse page de connexion",
       malware: "logiciel malveillant, exploits ou minage de cryptomonnaie",
@@ -359,6 +425,20 @@ export const MODERATION_NOTICE_TEXT: { readonly [code in LocaleCode]: Moderation
     openLink: "Portifact öffnen",
     footer:
       "Sie erhalten diese E-Mail, weil Sie dies auf Portifact verwalten. Es ist ein Servicehinweis zu einer Entscheidung über Ihre Inhalte oder Ihr Konto und kann daher nicht abbestellt werden.",
+    dataAuthor: {
+      suspendSubject: (l) =>
+        `Wir haben ein Artifact gesperrt, in dem Sie Daten gespeichert haben: ${l}`,
+      liftSubject: (l) =>
+        `Ein Artifact, in dem Sie Daten gespeichert haben, ist nicht mehr gesperrt: ${l}`,
+      suspendWhat: (l) =>
+        `Wir haben das Artifact ${l} wegen darin gespeicherter Daten gesperrt, darunter Dokumente, die Sie über seine Seite gespeichert haben. Es wird niemandem mehr ausgeliefert, und seine Seite kann keine Daten mehr lesen oder speichern. Ihre Dokumente bleiben erhalten und werden nicht gelöscht; Sie können sie weiterhin unter Geteilte Daten herunterladen und löschen.`,
+      liftWhat: (l) =>
+        `Wir haben die Sperre des Artifacts ${l} aufgehoben, in dem Sie über seine Seite Daten gespeichert haben. Seine Seite kann wieder Daten lesen und speichern, wie die Verwaltenden es eingerichtet haben.`,
+      open: "Ansehen, was Sie gespeichert haben:",
+      openLink: "Geteilte Daten",
+      footer:
+        "Sie erhalten diese E-Mail, weil Sie mit Ihrem Portifact-Konto Daten in diesem Artifact gespeichert haben. Es ist ein Servicehinweis zu einer Entscheidung über Inhalte, die Sie gespeichert haben, und kann daher nicht abbestellt werden.",
+    },
     reasons: {
       phishing: "Phishing oder eine gefälschte Anmeldeseite",
       malware: "Malware, Exploits oder Kryptomining",
@@ -421,6 +501,18 @@ export const MODERATION_NOTICE_TEXT: { readonly [code in LocaleCode]: Moderation
     openLink: "Открыть Portifact",
     footer:
       "Вы получили это письмо, потому что управляете этим в Portifact. Это служебное уведомление о решении по вашему контенту или аккаунту, поэтому его нельзя отключить.",
+    dataAuthor: {
+      suspendSubject: (l) => `Мы приостановили артефакт, в котором вы сохраняли данные: ${l}`,
+      liftSubject: (l) => `Артефакт, в котором вы сохраняли данные, больше не приостановлен: ${l}`,
+      suspendWhat: (l) =>
+        `Мы приостановили артефакт ${l} из-за сохранённых в нём данных, включая документы, которые вы сохранили через его страницу. Он больше никому не показывается, и его страница не может читать или сохранять данные. Ваши документы сохраняются, а не удаляются, и вы по-прежнему можете скачать и удалить их в разделе «Ваши общие данные».`,
+      liftWhat: (l) =>
+        `Мы сняли приостановку с артефакта ${l}, в котором вы сохраняли данные через его страницу. Его страница снова может читать и сохранять данные так, как это настроили его управляющие.`,
+      open: "Посмотреть, что вы сохранили:",
+      openLink: "Ваши общие данные",
+      footer:
+        "Вы получили это письмо, потому что сохраняли данные в этом артефакте с аккаунтом Portifact. Это служебное уведомление о решении по сохранённому вами контенту, поэтому его нельзя отключить.",
+    },
     reasons: {
       phishing: "фишинг или поддельная страница входа",
       malware: "вредоносное ПО, эксплойты или майнинг криптовалют",
@@ -481,6 +573,18 @@ export const MODERATION_NOTICE_TEXT: { readonly [code in LocaleCode]: Moderation
     openLink: "Portifact を開く",
     footer:
       "Portifact でこれを管理しているため、このメールをお送りしました。あなたのコンテンツまたはアカウントに関する決定についてのサービス通知のため、停止できません。",
+    dataAuthor: {
+      suspendSubject: (l) => `あなたがデータを保存したアーティファクト ${l} を停止しました`,
+      liftSubject: (l) => `あなたがデータを保存したアーティファクト ${l} の停止を解除しました`,
+      suspendWhat: (l) =>
+        `アーティファクト ${l} に保存されたデータ (あなたがそのページから保存したドキュメントを含みます) を理由に、このアーティファクトを停止しました。誰にも配信されなくなり、そのページはデータの読み取りや保存ができなくなります。あなたのドキュメントは削除されずに保持され、「共有したデータ」から引き続きダウンロードや削除ができます。`,
+      liftWhat: (l) =>
+        `あなたがページからデータを保存したアーティファクト ${l} の停止を解除しました。そのページは、管理者の設定どおりに再びデータを読み取り、保存できます。`,
+      open: "保存した内容を確認:",
+      openLink: "共有したデータ",
+      footer:
+        "Portifact アカウントでこのアーティファクトにデータを保存したため、このメールをお送りしました。あなたが保存したコンテンツに関する決定についてのサービス通知のため、停止できません。",
+    },
     reasons: {
       phishing: "フィッシングまたは偽のサインインページ",
       malware: "マルウェア、エクスプロイト、暗号資産のマイニング",
@@ -539,6 +643,18 @@ export const MODERATION_NOTICE_TEXT: { readonly [code in LocaleCode]: Moderation
     openLink: "打开 Portifact",
     footer:
       "你收到这封邮件,是因为你在 Portifact 上管理此项内容。这是一则关于你的内容或账户的决定的服务通知,因此无法关闭。",
+    dataAuthor: {
+      suspendSubject: (l) => `我们已暂停一个你保存过数据的 artifact:${l}`,
+      liftSubject: (l) => `一个你保存过数据的 artifact 已解除暂停:${l}`,
+      suspendWhat: (l) =>
+        `由于 artifact ${l} 中保存的数据(包括你通过其页面保存的文档),我们已暂停它。它不再向任何人提供,其页面也不能读取或保存数据。你的文档会被保留,不会被删除,你仍可以在"你分享的数据"中下载和删除它们。`,
+      liftWhat: (l) =>
+        `我们已解除 artifact ${l} 的暂停,你曾通过其页面在其中保存数据。其页面可以按管理者的设置再次读取和保存数据。`,
+      open: "查看你保存的内容:",
+      openLink: "你分享的数据",
+      footer:
+        "你收到这封邮件,是因为你用 Portifact 账户在此 artifact 中保存过数据。这是一则关于你保存的内容的决定的服务通知,因此无法关闭。",
+    },
     reasons: {
       phishing: "网络钓鱼或伪造的登录页面",
       malware: "恶意软件、漏洞利用或加密货币挖矿",
@@ -578,13 +694,17 @@ export function moderationNoticeEmail(input: ModerationNoticeInput): EmailConten
   const onArtifact = input.target === "artifact" || input.target === "attachment";
   const label = onArtifact ? artifactLabel(input) : "";
   const suspend = input.action === "suspend";
-  const subject = (suspend ? t.suspendSubject : t.liftSubject)[input.target](
-    input.artifactId ?? "",
-  );
-  const what = (suspend ? t.suspendWhat : t.liftWhat)[input.target](
-    label,
-    input.attachmentId ?? "",
-  );
+  // A data author is told about the artifact their documents are in, never as its manager.
+  const author = input.audience === "data_author" && input.target === "artifact";
+  const subject = author
+    ? (suspend ? t.dataAuthor.suspendSubject : t.dataAuthor.liftSubject)(input.artifactId ?? "")
+    : (suspend ? t.suspendSubject : t.liftSubject)[input.target](input.artifactId ?? "");
+  const what = author
+    ? (suspend ? t.dataAuthor.suspendWhat : t.dataAuthor.liftWhat)(label)
+    : (suspend ? t.suspendWhat : t.liftWhat)[input.target](label, input.attachmentId ?? "");
+  const open = author ? t.dataAuthor.open : t.open;
+  const openLink = author ? t.dataAuthor.openLink : t.openLink;
+  const footer = author ? t.dataAuthor.footer : t.footer;
   const facts = [
     ...(onArtifact ? [{ label: "ID", value: input.artifactId ?? "" }] : []),
     ...(input.target === "attachment" ? [{ label: "File", value: input.attachmentId ?? "" }] : []),
@@ -611,7 +731,7 @@ export function moderationNoticeEmail(input: ModerationNoticeInput): EmailConten
     { kind: "paragraph", content: [t.review] },
     {
       kind: "paragraph",
-      content: [t.open + gap(t.open), { href: input.dashboardUrl, text: t.openLink }],
+      content: [open + gap(open), { href: input.dashboardUrl, text: openLink }],
       muted: true,
     },
   ];
@@ -620,7 +740,7 @@ export function moderationNoticeEmail(input: ModerationNoticeInput): EmailConten
     preheader: what,
     heading: subject,
     blocks,
-    footer: t.footer,
+    footer,
     lang: locale,
   });
   const text = [
@@ -639,9 +759,9 @@ export function moderationNoticeEmail(input: ModerationNoticeInput): EmailConten
     "",
     t.review,
     "",
-    `${t.open}${gap(t.open)}${input.dashboardUrl}`,
+    `${open}${gap(open)}${input.dashboardUrl}`,
     "",
-    t.footer,
+    footer,
     ...textSignature(locale),
   ].join("\n");
   return { subject, text, html };

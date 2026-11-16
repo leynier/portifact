@@ -1,6 +1,6 @@
 # 0029 Comment attachments and screenshots
 
-- Status: accepted; built switched off (`ATTACHMENTS_ENABLED`) in stacked pull requests: this record, storage and the API, the viewer, then the legal pages (version 2026-12-21, provisional, taking effect at least 30 days after it is emailed and published), the skill and the CLI's help. Switching on follows "Attachments" in [releasing.md](../releasing.md).
+- Status: accepted; built switched off (`ATTACHMENTS_ENABLED`) in stacked pull requests: this record, storage and the API, the viewer, then the legal pages (prepared as version 2026-12-21; released as 2026-11-15 with no advance notice, since production had only the maintainer's two accounts, [legal.md](../legal.md), "This version's effective date"), the skill and the CLI's help. Switching on follows "Attachments" in [releasing.md](../releasing.md).
 - Date: 2026-11-14
 - Feature: comments (plan section 8). The plan lists attachments as outside the first version ("sin adjuntos") and gives them no design; the maintainer authorized defining and building them.
 

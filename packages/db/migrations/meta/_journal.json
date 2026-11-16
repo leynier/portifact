@@ -652,6 +652,34 @@
       "when": 1794702335555,
       "tag": "0092_comment_attachments_holds",
       "breakpoints": true
+    },
+    {
+      "idx": 93,
+      "version": "6",
+      "when": 1794776469923,
+      "tag": "0093_moderation_decision_authors",
+      "breakpoints": true
+    },
+    {
+      "idx": 94,
+      "version": "6",
+      "when": 1794778247587,
+      "tag": "0094_data_anonymous_grant_terms",
+      "breakpoints": true
+    },
+    {
+      "idx": 95,
+      "version": "6",
+      "when": 1794779023522,
+      "tag": "0095_journal_deletions",
+      "breakpoints": true
+    },
+    {
+      "idx": 96,
+      "version": "6",
+      "when": 1794782471439,
+      "tag": "0096_data_rights_requests",
+      "breakpoints": true
     }
   ]
 }

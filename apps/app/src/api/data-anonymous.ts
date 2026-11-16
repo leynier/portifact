@@ -4,7 +4,8 @@
 // bearer token, so a signed-in visitor's account plays no part. They answer only same-origin
 // requests from the app's own pages (the grant page and the viewer), behind
 // `DATA_ANONYMOUS_ENABLED`, and like any unknown route while it is off. The code needs a solved
-// human check and is limited per network address (keyed by a hash of it, never the address) and
+// human check and is limited per network address (keyed by an HMAC of it under a key derived from
+// `BETTER_AUTH_SECRET`, never the address) and
 // per artifact; everything that does not open answers like a missing artifact.
 import {
   AnonymousDataGrantCodeRequest,
@@ -48,14 +49,54 @@ function requestedHost(c: ApiContext, artifactId: string, host: string | null | 
     : host;
 }
 
-/** A hash of the request's network address: the per-address limit's key, never the address. */
-async function addressKey(c: ApiContext): Promise<string> {
-  const address = c.req.raw.headers.get("cf-connecting-ip") ?? "unknown";
-  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(address));
-  return [...new Uint8Array(digest)]
-    .slice(0, 16)
-    .map((byte) => byte.toString(16).padStart(2, "0"))
-    .join("");
+/** HKDF's `info` for the address key: purpose-separated from every other use of the secret. */
+export const ADDRESS_KEY_INFO = "portifact anonymous data address v1";
+
+const encoder = new TextEncoder();
+const addressKeys = new Map<string, Promise<CryptoKey>>();
+
+/**
+ * The HMAC key of the per-address limit, derived with HKDF from `BETTER_AUTH_SECRET` (required in
+ * every deployment), cached per isolate. A secret key, so the stored limit key cannot be reversed
+ * by hashing every address.
+ */
+function addressHmacKey(secret: string): Promise<CryptoKey> {
+  let key = addressKeys.get(secret);
+  if (!key) {
+    key = crypto.subtle
+      .importKey("raw", encoder.encode(secret), "HKDF", false, ["deriveKey"])
+      .then((material) =>
+        crypto.subtle.deriveKey(
+          {
+            name: "HKDF",
+            hash: "SHA-256",
+            salt: new Uint8Array(0),
+            info: encoder.encode(ADDRESS_KEY_INFO),
+          },
+          material,
+          { name: "HMAC", hash: "SHA-256", length: 256 },
+          false,
+          ["sign"],
+        ),
+      );
+    addressKeys.clear();
+    addressKeys.set(secret, key);
+  }
+  return key;
+}
+
+/**
+ * A keyed hash of the request's network address (HMAC-SHA-256 under `addressHmacKey`, over the
+ * address in lower case): the per-address limit's key, pseudonymous, never the address.
+ */
+export async function addressKey(secret: string, address: string | null): Promise<string> {
+  const normalized = (address ?? "unknown").trim().toLowerCase();
+  const mac = await crypto.subtle.sign(
+    "HMAC",
+    await addressHmacKey(secret),
+    encoder.encode(normalized),
+  );
+  return [...new Uint8Array(mac)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 
 export function anonymousGrantRoutes(deps: AnonymousGrantDeps) {
@@ -109,7 +150,11 @@ export function anonymousGrantRoutes(deps: AnonymousGrantDeps) {
       contentDomain: c.env.CONTENT_DOMAIN,
       customDomains: customDomainsServing(c.env),
       enabled: true,
-      addressKey: await addressKey(c),
+      termsVersion: input.termsVersion,
+      addressKey: await addressKey(
+        c.env.BETTER_AUTH_SECRET,
+        c.req.raw.headers.get("cf-connecting-ip"),
+      ),
       now: deps.now(),
     });
     if (!result.ok) return error(c, result.code, result.message);

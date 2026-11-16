@@ -24,8 +24,10 @@ import {
   REGIONS,
   ScimTokenId,
   ServiceTokenId,
+  STATEMENT_LIMITS,
   StatementText,
   TombstoneMarker,
+  VisitorId,
   WorkspacePolicyExport,
 } from "@portifact/contracts";
 import {
@@ -65,6 +67,7 @@ import {
   clearBudgetOverride,
   clearRequestPolicies,
   createWorkspace,
+  type DataAuthorName,
   type DomainDeps,
   deleteWorkspace,
   detachDomain,
@@ -87,6 +90,7 @@ import {
   listBlockedHostnames,
   listBudgetAlerts,
   listDataFindings,
+  listDataRightsRequests,
   listDecisions,
   listEmailSuppressions,
   listLegalHolds,
@@ -111,6 +115,8 @@ import {
   removeAttachment,
   removeOwnerPlan,
   resolveAbuseReport,
+  resolveDataRightsRequest,
+  retryDataRightsRequest,
   sendSuspensionStatement,
   setBudgetOverride,
   setOwnerPlan,
@@ -141,15 +147,17 @@ Commands:
   revoke-service-token <service-token-id>
   find-scim-token              (reads a leaked SCIM token from standard input)
   revoke-scim-token <scim-token-id>
-  suspend-artifact <artifact-id> --reason <reason> --facts <text> --ground <text> [--source notice|review] [--report <report-id>] [--note <text>] [--withhold-notice]
-  reinstate-artifact <artifact-id> --facts <text> [--source notice|review] [--withhold-notice]
+  suspend-artifact <artifact-id> --reason <reason> --facts <text> --ground <text> [--source notice|review] [--report <report-id>] [--note <text>] [--withhold-notice] [--data-author <visitor-id|user-id|email>,...]
+                               (--data-author: the signed-in authors whose artifact data caused it, told through the author journal)
+  reinstate-artifact <artifact-id> --facts <text> [--source notice|review] [--withhold-notice] [--data-author <...>,...]
+                               (the data authors the suspension named are told too)
   suspend-account <user-id|email> --reason <reason> --facts <text> --ground <text> [--source notice|review] [--report <report-id>] [--note <text>] [--withhold-notice]
   reinstate-account <user-id|email> --facts <text> [--source notice|review] [--withhold-notice]
   brand <owner: user-id|email|workspace-id>
   suspend-brand <owner> --reason <reason> --facts <text> --ground <text> [--source notice|review] [--report <report-id>] [--withhold-notice]
   reinstate-brand <owner> --facts <text> [--source notice|review] [--withhold-notice]
   decisions artifact|account|brand <id|email>, or decisions attachment <artifact-id>/<attachment-id>   (statements of reasons and who they were sent to)
-  send-statement artifact|account|brand <id|email> [--facts <text> --ground <text> [--source notice|review]]
+  send-statement artifact|account|brand <id|email> [--facts <text> --ground <text> [--source notice|review] [--data-author <...>,...]]
                                (sends the withheld statement of an open suspension, or records and sends a new one)
   hold-artifact <artifact-id> --ground <text> [--until <date>]   (a suspended artifact only)
   release-hold <artifact-id>
@@ -170,6 +178,10 @@ Commands:
                                erase is refused while D1 or the object holds)
   data-export <artifact-id> [--region <region>]   (the object's documents to the region's bucket,
                                also under a hold or a quarantine)
+  data-rights-requests [--limit N] [--region <region>]   (rights requests nobody could be emailed
+                               about, and those still waiting a day later)
+  data-rights-resolve <request-id> [--retry] [--region <region>]   (marks it handled another way, or
+                               with --retry emails the managers again once a suppression is lifted)
   export-tombstones --out <file> [--region all|<region>]   (with more than one region: all, or a region with its own database)
   apply-tombstones [--file <file>] [--region all|<region>]
   budget
@@ -869,6 +881,44 @@ export async function runOperator(
       withhold: options.has("withhold-notice"),
     };
   };
+  /**
+   * The authors of an artifact's data `--data-author` names (comma-separated): a visitor ID as a
+   * document carries it, or an account by ID or email. A string is the refusal to print.
+   */
+  const dataAuthorsOption = async (): Promise<DataAuthorName[] | string> => {
+    if (!options.has("data-author")) return [];
+    const given = [
+      ...new Set(
+        (options.get("data-author") ?? "")
+          .split(",")
+          .map((item) => item.trim())
+          .filter((item) => item.length > 0),
+      ),
+    ];
+    if (given.length === 0) return "--data-author needs visitor IDs, user IDs or emails.";
+    if (given.length > STATEMENT_LIMITS.dataAuthorsMax) {
+      return `--data-author names at most ${STATEMENT_LIMITS.dataAuthorsMax} authors.`;
+    }
+    const named: DataAuthorName[] = [];
+    for (const item of given) {
+      if (VisitorId.safeParse(item).success) {
+        named.push({ kind: "visitor", visitorId: item });
+        continue;
+      }
+      if (item.startsWith("v_")) return `Not a visitor ID: ${oneLine(item)}`;
+      const userId = await userIdFor(global, item);
+      const [account] = userId
+        ? await global
+            .select({ id: schema.users.id })
+            .from(schema.users)
+            .where(eq(schema.users.id, userId))
+            .limit(1)
+        : [];
+      if (!account) return `No account for --data-author ${oneLine(item)}.`;
+      named.push({ kind: "account", userId: account.id });
+    }
+    return named;
+  };
   const noticeLine = (withhold: boolean) =>
     withhold
       ? "The statement of reasons is recorded and withheld: nobody is emailed."
@@ -1072,13 +1122,15 @@ export async function runOperator(
       }
       const statement = statementOption(true);
       if (typeof statement === "string") return usage(statement);
+      const dataAuthors = await dataAuthorsOption();
+      if (typeof dataAuthors === "string") return usage(dataAuthors);
       const noReport = await reportMissing();
       if (noReport) return { exitCode: 1, output: noReport };
       const result = await suspendArtifact(await artifactDb(artifactId), {
         artifactId,
         reason: reason.data,
         ...suspendOptions(),
-        statement,
+        statement: { ...statement, dataAuthors },
       });
       if (!result.ok) return { exitCode: 1, output: result.message };
       return {
@@ -1093,10 +1145,12 @@ export async function runOperator(
       if (!artifactId) return usage("reinstate-artifact needs an artifact ID.");
       const statement = statementOption(false);
       if (typeof statement === "string") return usage(statement);
+      const dataAuthors = await dataAuthorsOption();
+      if (typeof dataAuthors === "string") return usage(dataAuthors);
       const result = await reinstateArtifact(await artifactDb(artifactId), {
         artifactId,
         now,
-        statement,
+        statement: { ...statement, dataAuthors },
       });
       if (!result.ok) return { exitCode: 1, output: result.message };
       return {
@@ -1222,12 +1276,31 @@ export async function runOperator(
       if ((kind !== "artifact" && kind !== "account" && kind !== "brand") || !who) {
         return usage("send-statement needs artifact, account or brand and an ID or email.");
       }
-      let statement: { facts: string; ground?: string; source: "notice" | "review" } | undefined;
+      let statement:
+        | {
+            facts: string;
+            ground?: string;
+            source: "notice" | "review";
+            dataAuthors: DataAuthorName[];
+          }
+        | undefined;
+      if (options.has("data-author") && (kind !== "artifact" || !options.has("facts"))) {
+        return usage(
+          "--data-author goes with a new statement about an artifact (--facts and --ground); a withheld one keeps the authors it named.",
+        );
+      }
       if (options.has("facts") || options.has("ground")) {
         const given = statementOption(true);
         if (typeof given === "string") return usage(given);
         if (given.withhold) return usage("send-statement sends; leave out --withhold-notice.");
-        statement = { facts: given.facts, ground: given.ground ?? "", source: given.source };
+        const dataAuthors = await dataAuthorsOption();
+        if (typeof dataAuthors === "string") return usage(dataAuthors);
+        statement = {
+          facts: given.facts,
+          ground: given.ground ?? "",
+          source: given.source,
+          dataAuthors,
+        };
       }
       const targetId = kind === "artifact" ? who : await userIdFor(global, who);
       if (!targetId) return { exitCode: 1, output: "Account not found." };
@@ -1279,6 +1352,9 @@ export async function runOperator(
               `${d.id}  ${iso(d.createdAt)}  ${d.action}  ${d.reason ?? "-"}  ${d.source}  notice ${d.notice}${d.notifiedAt ? ` ${iso(d.notifiedAt)}` : ""}`,
               `  facts   ${JSON.stringify(d.facts)}`,
               ...(d.ground === null ? [] : [`  ground  ${JSON.stringify(d.ground)}`]),
+              ...d.dataAuthors.map(
+                (author) => `  author  ${author.kind} ${author.author} (artifact data)`,
+              ),
               ...d.sends.map((send) => `  sent    ${iso(send.sentAt)} to ${send.userId}`),
             ].join("\n"),
           )
@@ -1493,6 +1569,45 @@ export async function runOperator(
               `${f.artifactId}  ${f.action}${f.reason ? ` (${f.reason})` : ""}${f.state ? `  state ${f.state}` : ""}  first ${new Date(f.firstSeenAt).toISOString()}  last ${new Date(f.lastSeenAt).toISOString()}`,
           )
           .join("\n"),
+      };
+    }
+    case "data-rights-requests": {
+      const limit = Number(options.get("limit") ?? 100);
+      if (!Number.isInteger(limit) || limit < 1 || limit > 500) {
+        return usage("--limit must be 1 to 500.");
+      }
+      const requests = await listDataRightsRequests(db, now, limit);
+      if (requests.length === 0) return { exitCode: 0, output: "No rights requests to handle." };
+      return {
+        exitCode: 0,
+        output: requests
+          .map(
+            (r) =>
+              `${r.id}  ${r.artifactId}  ${r.kind}  ${r.state}${r.reason ? ` (${r.reason})` : ""}  visitor ${r.visitorId}  made ${new Date(r.createdAt).toISOString()}`,
+          )
+          .join("\n"),
+      };
+    }
+    case "data-rights-resolve": {
+      const [requestId] = args;
+      if (!requestId) return usage("data-rights-resolve needs a request ID.");
+      const retry = options.has("retry");
+      const changed = retry
+        ? await retryDataRightsRequest(db, requestId, now)
+        : await resolveDataRightsRequest(db, requestId, now);
+      if (!changed) {
+        return {
+          exitCode: 1,
+          output: retry
+            ? `No undeliverable rights request ${requestId} in region ${regionName}.`
+            : `No pending or undeliverable rights request ${requestId} in region ${regionName}.`,
+        };
+      }
+      return {
+        exitCode: 0,
+        output: retry
+          ? `Rights request ${requestId} queued to be emailed again.`
+          : `Rights request ${requestId} marked resolved.`,
       };
     }
     case "data-resolve": {
