@@ -1833,6 +1833,47 @@ describe("journal and grants", () => {
     expect(erasureOwed(erased({ ...entry, retiredAt: NOW }, NOW))).toBe(false);
   });
 
+  it("lets a WebSocket handshake without fetch metadata in only from the artifact's own origin", () => {
+    // Chrome sends no Sec-Fetch-* header on a WebSocket opening handshake, only Origin (the
+    // production commissioning of 2026-11-16); Firefox sends Sec-Fetch-Site: same-origin.
+    const h = (values: Record<string, string>) => new Headers(values);
+    const origin = "https://abcdefgh23.portifact.dev";
+    expect(apiGate(h({ Upgrade: "websocket", Origin: origin }), origin, false)).toBe("allowed");
+    expect(apiGate(h({ Upgrade: "WebSocket", Origin: origin }), origin, false)).toBe("allowed");
+    // Any other origin, a sibling's included, or none at all.
+    expect(
+      apiGate(h({ Upgrade: "websocket", Origin: "https://evil.example" }), origin, false),
+    ).toBe("refused");
+    expect(
+      apiGate(
+        h({ Upgrade: "websocket", Origin: "https://zzzzzzzz23.portifact.dev" }),
+        origin,
+        false,
+      ),
+    ).toBe("refused");
+    expect(apiGate(h({ Upgrade: "websocket", Origin: `${origin}/` }), origin, false)).toBe(
+      "refused",
+    );
+    expect(apiGate(h({ Upgrade: "websocket", Origin: "null" }), origin, false)).toBe("refused");
+    expect(apiGate(h({ Upgrade: "websocket" }), origin, false)).toBe("refused");
+    // Fetch metadata that is present must still say same-origin.
+    for (const site of ["same-site", "cross-site", "none", ""]) {
+      expect(
+        apiGate(h({ Upgrade: "websocket", Origin: origin, "Sec-Fetch-Site": site }), origin, false),
+      ).toBe("refused");
+    }
+    // Not a handshake: no fetch metadata still fails closed, whatever the origin.
+    expect(apiGate(h({ Origin: origin }), origin, false)).toBe("refused");
+    expect(apiGate(h({ Upgrade: "h2c", Origin: origin }), origin, false)).toBe("refused");
+    expect(
+      apiGate(
+        h({ Upgrade: "websocket", Origin: origin, "Content-Type": "application/json" }),
+        origin,
+        true,
+      ),
+    ).toBe("refused");
+  });
+
   it("gates the API, the start and the redemption by fetch metadata", () => {
     const h = (values: Record<string, string>) => new Headers(values);
     const origin = "https://abcdefgh23.portifact.dev";

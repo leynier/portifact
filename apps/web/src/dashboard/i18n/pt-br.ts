@@ -1720,6 +1720,7 @@ export const ptBR = {
   "webhooks.deliveries.outcome": "Resultado",
   "webhooks.error.timeout": "tempo esgotado",
   "webhooks.error.network": "sem conexão",
+  "webhooks.error.certificate": "certificado não aceito",
   "webhooks.error.redirect": "redirecionado, não seguido",
   "webhooks.error.invalid_url": "URL não permitida",
   "webhooks.error.daily_cap": "limite diário atingido",
@@ -3246,7 +3247,7 @@ export const ptBR = {
     "O segredo antigo continua assinando junto com o novo por 24 horas, para que seu endpoint troque sem perder nenhuma requisição.",
   "audit.stream.verify.title": "Verifique cada requisição",
   "audit.stream.verify.body":
-    "Cada requisição traz webhook-id, webhook-timestamp e webhook-signature, o mesmo esquema dos webhooks do Portifact. Recalcule a assinatura sobre o corpo original, recuse carimbos de tempo com mais de 5 minutos de diferença e ignore eventos cujo ID você já guardou. Linhas com um campo record não são eventos: uma lacuna ou um teste.",
+    "Cada requisição traz webhook-id, webhook-timestamp e webhook-signature, o mesmo esquema dos webhooks do Portifact. Recalcule a assinatura sobre o corpo original, recuse carimbos de tempo com mais de 5 minutos de diferença e ignore eventos cujo ID você já guardou. Linhas com um campo record não são eventos: uma lacuna ou um teste. Verificadores que leem o corpo como um único valor JSON, como o verify() da biblioteca standardwebhooks, falham em uma requisição com mais de uma linha mesmo com a assinatura correta: verifique a assinatura sobre o corpo original como o exemplo faz e depois leia o corpo linha por linha.",
   "audit.stream.verify.sample": "Verificação da assinatura em Node.js",
   "audit.stream.state.active": "Ativo",
   "audit.stream.state.paused": "Pausado",

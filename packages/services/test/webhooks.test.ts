@@ -1707,6 +1707,27 @@ describe("review fixes", () => {
     return { owner, a, webhook: created.webhook };
   }
 
+  it("logs Cloudflare's certificate answers as a certificate failure and retries them", async () => {
+    const { webhook } = await ready();
+    const net = network(
+      new Response("bad cert", { status: 526 }),
+      new Response("handshake", { status: 525 }),
+      new Response("ok"),
+    );
+    const webhooks = await deps(net.fetch);
+    expect(await runDue(webhook.id, AFTER, webhooks)).toEqual(["kept"]);
+    let due = AFTER + (WEBHOOK_LIMITS.retryDelaysMs[0] ?? 0);
+    expect(await runDue(webhook.id, due, webhooks)).toEqual(["kept"]);
+    due += WEBHOOK_LIMITS.retryDelaysMs[1] ?? 0;
+    expect(await runDue(webhook.id, due, webhooks)).toEqual(["done"]);
+    const rows = await log(webhook.id);
+    expect(rows.map((row) => [row.outcome, row.status, row.error])).toEqual([
+      ["failed", null, "certificate"],
+      ["failed", null, "certificate"],
+      ["delivered", 200, null],
+    ]);
+  });
+
   it("does not send a retry early when the same message is delivered again", async () => {
     const { webhook } = await ready();
     const net = network(new Response("down", { status: 503 }), new Response("ok"));

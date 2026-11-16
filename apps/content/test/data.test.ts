@@ -767,12 +767,18 @@ describe("artifact data on the artifact origin", () => {
 describe("live updates on the artifact origin", () => {
   const LIVE_ON = { ...ON, DATA_LIVE_ENABLED: "true" };
 
-  async function upgrade(id: string, options: { cookie?: string; origin?: string; env?: object }) {
-    const headers = new Headers({
-      ...FETCH,
-      Upgrade: "websocket",
-      Origin: options.origin ?? `https://${id}.portifact.dev`,
-    });
+  async function upgrade(
+    id: string,
+    options: {
+      cookie?: string;
+      origin?: string | null;
+      env?: object;
+      fetchMetadata?: Record<string, string>;
+    },
+  ) {
+    const headers = new Headers({ ...(options.fetchMetadata ?? FETCH), Upgrade: "websocket" });
+    const origin = options.origin === undefined ? `https://${id}.portifact.dev` : options.origin;
+    if (origin !== null) headers.set("Origin", origin);
     if (options.cookie) headers.set("Cookie", options.cookie);
     return handle(
       new Request(`https://${id}.portifact.dev/__portifact/data/live`, { headers }),
@@ -848,6 +854,46 @@ describe("live updates on the artifact origin", () => {
     );
     expect(plain.status).toBe(426);
     expect(CLIENT_SCRIPT).toContain("live/renew");
+  });
+
+  it("connects Chrome's handshake, which carries no fetch metadata, only from the artifact's origin", async () => {
+    // Chrome sends Origin and no Sec-Fetch-* header on a WebSocket handshake.
+    const id = await seed();
+    const grant = cookieOf((await granted(id)).redeemed, GRANT_COOKIE);
+    const opened = await upgrade(id, { cookie: grant, fetchMetadata: {} });
+    expect(opened.status).toBe(101);
+    const { socket, hello: greeted } = await hello(opened);
+    expect(greeted.deadline).toBe(NOW + 60_000);
+    socket.close(1000);
+    const reader = await upgrade(id, { fetchMetadata: {} });
+    expect(reader.status).toBe(101);
+    (await hello(reader)).socket.close(1000);
+
+    const refused = async (options: Parameters<typeof upgrade>[1]) =>
+      (await upgrade(id, { cookie: grant, fetchMetadata: {}, ...options })).status;
+    expect(await refused({ origin: "https://evil.example" })).toBe(403);
+    expect(await refused({ origin: "https://zzzzzzzz23.portifact.dev" })).toBe(403);
+    expect(await refused({ origin: null })).toBe(403);
+    expect(await refused({ fetchMetadata: { "Sec-Fetch-Site": "same-site" } })).toBe(403);
+    expect(await refused({ fetchMetadata: { "Sec-Fetch-Site": "cross-site" } })).toBe(403);
+    // Not a handshake: a request without fetch metadata is still refused before anything else.
+    const plain = await handle(
+      new Request(`https://${id}.portifact.dev/__portifact/data/live`, {
+        headers: { Origin: `https://${id}.portifact.dev`, Cookie: grant },
+      }),
+      LIVE_ON as typeof env,
+      NOW,
+    );
+    expect(plain.status).toBe(403);
+    const me = await handle(
+      new Request(`https://${id}.portifact.dev/__portifact/data/me`, {
+        headers: { Origin: `https://${id}.portifact.dev`, Upgrade: "websocket", Cookie: grant },
+        method: "POST",
+      }),
+      LIVE_ON as typeof env,
+      NOW,
+    );
+    expect(me.status).toBe(403);
   });
 
   it("answers a protected artifact's live path like a missing one without a reading session", async () => {

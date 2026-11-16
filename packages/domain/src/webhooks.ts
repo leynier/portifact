@@ -155,11 +155,27 @@ export interface AttemptVerdict {
   gone: boolean;
 }
 
+/**
+ * Cloudflare's answers to a Worker's `fetch` whose endpoint failed TLS: 525 (the handshake
+ * failed) and 526 (the certificate is invalid or expired). Workers get these instead of a TLS
+ * error, so they mean the endpoint's certificate, not a refusal (decisions 0009 and 0019).
+ */
+const CERTIFICATE_STATUSES: ReadonlySet<number> = new Set([525, 526]);
+
+/** Whether an answer is Cloudflare's report that the endpoint's certificate did not pass. */
+export function isCertificateStatus(status: number): boolean {
+  return CERTIFICATE_STATUSES.has(status);
+}
+
 export function classifyAttempt(result: AttemptResult): AttemptVerdict {
   if (result.kind !== "status") {
     return { outcome: "failed", status: null, error: result.kind, retryable: true, gone: false };
   }
   const { status } = result;
+  // Like a TLS error: no answer from the receiver, retried in case the certificate is renewed.
+  if (isCertificateStatus(status)) {
+    return { outcome: "failed", status: null, error: "certificate", retryable: true, gone: false };
+  }
   if (status >= 200 && status < 300) {
     return { outcome: "delivered", status, error: null, retryable: false, gone: false };
   }

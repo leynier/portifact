@@ -38,10 +38,18 @@ export const PORTIFACT_RESOURCES = {
    */
   scripts: ["portifact-app", "portifact-content", "portifact-jobs", "portifact-data"],
   /**
-   * The Workers whose Durable Objects are artifact data's: their namespaces (one per
-   * jurisdiction) are found from their invocations, so no namespace ID is configured here.
+   * The Workers whose Durable Objects are artifact data's: the namespaces (one per jurisdiction)
+   * their objects ran in this cycle are found from their invocations.
    */
   dataScripts: ["portifact-data"],
+  /**
+   * The documents namespaces whose storage is read even in a cycle none of their objects ran in:
+   * stored bytes are a gauge, billed whether or not anything runs, and the invocations dataset
+   * looks back at most 90 days. The default region's `ArtifactDocuments` namespace, from the
+   * invocations of 2026-11-16 (decision 0026, "Production commissioning, 2026-11-16"); the EU
+   * jurisdiction's is read through its invocations until it is listed here too.
+   */
+  dataNamespaceIds: ["53f0dd4e9ddd40038fb8977510585bf8"],
   /**
    * Each region's control database and access database (`portifact-access`, the access log and
    * the analytics view counters, decision 0007): rows read and written in all of them are billed
@@ -141,6 +149,13 @@ export const DATA_USAGE_QUERY = `query PortifactDataUsage($accountTag: string!, 
     }
   }
 }`;
+
+/**
+ * How far back the storage query looks for each namespace's latest sample, whatever the cycle:
+ * the platform samples SQLite storage about once an hour, so a cycle's first minutes and a
+ * namespace's first hour have none of their own.
+ */
+export const DATA_STORAGE_LOOKBACK_MS = 3 * 60 * 60 * 1000;
 
 /**
  * The latest storage sample of each namespace, newest first. SQLite-backed objects report in
@@ -370,19 +385,27 @@ export function cloudflareAnalytics(
             dataScripts: PORTIFACT_RESOURCES.dataScripts,
           }),
         );
-        if (requests.namespaceIds.length === 0) {
-          return { ...platform, ...parseDataUsage(requests.invocations, null) };
-        }
-        const namespaces = { ...range, namespaceIds: requests.namespaceIds };
-        const usage = parseDataUsage(
-          requests.invocations,
-          await graphql<DataAnswer>(config, fetcher, DATA_USAGE_QUERY, namespaces),
-        );
-        // Storage on its own: a failure there leaves only the stored bytes unmeasured.
+        const usage =
+          requests.namespaceIds.length === 0
+            ? parseDataUsage(requests.invocations, null)
+            : parseDataUsage(
+                requests.invocations,
+                await graphql<DataAnswer>(config, fetcher, DATA_USAGE_QUERY, {
+                  ...range,
+                  namespaceIds: requests.namespaceIds,
+                }),
+              );
+        // Storage on its own: a failure there leaves only the stored bytes unmeasured. A gauge, so
+        // read for every known namespace, ran this cycle or not, from the latest samples.
         try {
           const storage = parseDataUsage(
             requests.invocations,
-            await graphql<DataAnswer>(config, fetcher, DATA_STORAGE_QUERY, namespaces),
+            await graphql<DataAnswer>(config, fetcher, DATA_STORAGE_QUERY, {
+              accountTag: config.accountId,
+              start: new Date(end - DATA_STORAGE_LOOKBACK_MS).toISOString(),
+              end: range.end,
+              namespaceIds: storageNamespaces(requests.namespaceIds),
+            }),
           );
           if (storage.dataStoredBytes !== undefined)
             usage.dataStoredBytes = storage.dataStoredBytes;
@@ -396,6 +419,11 @@ export function cloudflareAnalytics(
       }
     },
   };
+}
+
+/** The namespaces whose storage is read: the configured ones and every one that ran this cycle. */
+export function storageNamespaces(ran: readonly string[]): string[] {
+  return [...new Set([...PORTIFACT_RESOURCES.dataNamespaceIds, ...ran])].sort();
 }
 
 /** The collector when both settings are present, otherwise null (analytics off). */
