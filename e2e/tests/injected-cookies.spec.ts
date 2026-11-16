@@ -2,7 +2,14 @@
 // Suffix List): every other artifact still loads for the same visitor, the content Worker
 // expires them once they grow, and none of them grants access. See "Injected cookies" in
 // docs/security.md.
-import { contentRequests, createUser, expect, publish, test } from "../src/fixtures.ts";
+import {
+  contentRequests,
+  createUser,
+  expect,
+  liveCookies,
+  publish,
+  test,
+} from "../src/fixtures.ts";
 import { cookieInjectingPage } from "../src/hostile.ts";
 import { APP_ORIGIN, artifactOrigin, CONTENT_SITE } from "../src/hosts.ts";
 
@@ -43,14 +50,10 @@ test("an artifact that injects hundreds of shared-domain cookies breaks no other
     files: { "index.html": "<!doctype html><title>Secret</title><h1>Secret</h1>" },
   });
 
-  // Live cookies on the shared domain. Firefox can still list a cookie a response just expired,
-  // empty and past its expiry, though it no longer sends it.
+  // Live cookies on the shared domain.
   const shared = async () =>
-    (await context.cookies()).filter(
-      (cookie) =>
-        cookie.domain.replace(/^\./, "") === CONTENT_SITE &&
-        cookie.value !== "" &&
-        (cookie.expires === -1 || cookie.expires * 1000 > Date.now()),
+    (await liveCookies(context)).filter(
+      (cookie) => cookie.domain.replace(/^\./, "") === CONTENT_SITE,
     );
   await page.goto(`${artifactOrigin(attacker.artifactId)}/`);
   await expect(page.locator("#state")).toHaveText("injected");

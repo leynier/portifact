@@ -358,6 +358,15 @@ test("an EU workspace keeps its artifacts, comments, logs and bytes in the EU, f
   // 5. The owner side resolves the thread from the viewer's sidebar.
   await page.goto(`${APP_ORIGIN}/view/${notesId}`);
   await page.getByRole("heading", { level: 1, name: "EU notes" }).waitFor();
+  // Once the frame connects, the sidebar adds its tools above the threads and moves them down:
+  // a press that starts before that releases off the button and resolves nothing. Wait for the
+  // frame to settle, connected or refused by the browser's cookie rules.
+  if (engine.reviewWorks) {
+    await artifactFrame(page, notesId);
+    await expect(page.getByText("Connecting to the page")).toBeHidden();
+  } else {
+    await expect(page.getByText("Review tools are not available in this browser")).toBeVisible();
+  }
   const thread = page.getByRole("article", { name: "Thread 1" });
   await thread.getByRole("button", { name: "Resolve" }).click();
   await expect(thread.getByText("Resolved")).toBeVisible();

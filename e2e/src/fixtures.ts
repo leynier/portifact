@@ -311,6 +311,18 @@ export async function signIn(context: BrowserContext, user: User): Promise<void>
   ]);
 }
 
+/**
+ * The cookies the browser would still send to `url` (every URL when absent). Firefox can still
+ * list a cookie a response just expired, empty and past its expiry, though it no longer sends it,
+ * so a test that checks a cookie is gone reads this, never `context.cookies()` itself.
+ */
+export async function liveCookies(context: BrowserContext, url?: string) {
+  const now = Date.now();
+  return (await context.cookies(url)).filter(
+    (cookie) => cookie.value !== "" && (cookie.expires === -1 || cookie.expires * 1000 > now),
+  );
+}
+
 /** The artifact frame of the viewer, once it shows the artifact itself. */
 export async function artifactFrame(page: Page, artifactId: string): Promise<Frame> {
   const host = `${artifactId}.${CONTENT_SITE}`;

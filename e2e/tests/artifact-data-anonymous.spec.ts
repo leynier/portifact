@@ -4,8 +4,15 @@
 // writes as it, in a `shared` collection where another anonymous visitor sees the note. Where the
 // owner did not open the data to anyone, the control asks the visitor to sign in instead.
 import type { Page } from "@playwright/test";
-import { control, createUser, expect, openReview, publish, test } from "../src/fixtures.ts";
+import { control, createUser, expect, openReview, publish, sql, test } from "../src/fixtures.ts";
 import { APP_ORIGIN, artifactOrigin } from "../src/hosts.ts";
+
+// Every browser of the stack shares one address, and anonymous grant codes are limited per address
+// (`DATA_GRANT.anonymousPerIpPerHour`, 10 an hour, counted on every Allow): give the share back
+// after each test, or a repeated run is refused from its sixth round and the grant never lands.
+test.afterEach(async () => {
+  await sql("delete from rate_limits where key like 'data_anon:ip:%'");
+});
 
 /** The artifact's page: the client script and a few helpers the test drives through `window`. */
 const SITE = {
@@ -118,7 +125,12 @@ test("the viewer's frame, or the top-level tab where the frame cannot keep the g
   const artifactId = await guestbook("anyone", true);
   await openReview(page, artifactId, "Guestbook");
   const frame = page.frameLocator("iframe");
-  await frame.getByRole("button", { name: "Sign the guestbook" }).click();
+  // The page listens for its button once its script ran, which it shows by leaving "waiting".
+  await expect(frame.locator("#state")).toHaveText("not granted");
+  // The anonymous viewer has no bridge to wait for, so the cross-site frame can be asked for a
+  // click the moment it loads, before Chromium routes pointer input into it: such a press lands
+  // on the viewer and the page never asks (CI, 2026-11-15). A key goes to the focused frame.
+  await frame.getByRole("button", { name: "Sign the guestbook" }).press("Enter");
   // The viewer draws the anonymous control itself; the page only asked.
   await page.getByRole("button", { name: "Allow" }).click();
   if (engine.reviewWorks) {
