@@ -142,13 +142,18 @@ export const DATA_USAGE_QUERY = `query PortifactDataUsage($accountTag: string!, 
   }
 }`;
 
-/** The latest storage sample of each namespace, newest first. */
+/**
+ * The latest storage sample of each namespace, newest first. SQLite-backed objects report in
+ * `durableObjectsSqlStorageGroups` (an hourly sample per namespace); `durableObjectsStorageGroups`
+ * has no `namespaceId` filter and is empty for them (checked against the live schema in delivery
+ * 8's measurements, decision 0026). Ordering by `datetime` needs it among the dimensions.
+ */
 export const DATA_STORAGE_QUERY = `query PortifactDataStorage($accountTag: string!, $start: Time!, $end: Time!, $namespaceIds: [string!]!) {
   viewer {
     accounts(filter: { accountTag: $accountTag }) {
-      durableObjectsStorageGroups(limit: 1000, filter: { datetime_geq: $start, datetime_lt: $end, namespaceId_in: $namespaceIds }, orderBy: [datetime_DESC]) {
+      durableObjectsSqlStorageGroups(limit: 1000, filter: { datetime_geq: $start, datetime_lt: $end, namespaceId_in: $namespaceIds }, orderBy: [datetime_DESC]) {
         max { storedBytes }
-        dimensions { namespaceId }
+        dimensions { datetime namespaceId }
       }
     }
   }
@@ -175,7 +180,7 @@ interface DataUsageAccount {
       rowsWritten?: number;
     };
   }[];
-  durableObjectsStorageGroups?: {
+  durableObjectsSqlStorageGroups?: {
     max?: { storedBytes?: number };
     dimensions?: { namespaceId?: string };
   }[];
@@ -230,7 +235,7 @@ export function parseDataUsage(invocations: number, data: DataAnswer | null): An
     metrics.dataRowsRead = total(periodic, (row) => row.sum?.rowsRead) ?? 0;
     metrics.dataRowsWritten = total(periodic, (row) => row.sum?.rowsWritten) ?? 0;
   }
-  const storage = account.durableObjectsStorageGroups;
+  const storage = account.durableObjectsSqlStorageGroups;
   if (storage) {
     const latest = new Map<string, number>();
     for (const row of storage) {

@@ -18,6 +18,7 @@ import {
   AUTHOR_DELETE_PAGES,
   type CollectionDeclaration,
   type CollectionInfo,
+  DATA_OWNER_READS,
   type DataAuditPayload,
   DataAuditPayload as DataAuditPayloadSchema,
   type DataCount,
@@ -421,7 +422,66 @@ async function mutate(
   return sent;
 }
 
-/** A read: authorized, then the object, or the empty answer when nothing was ever stored. */
+/** How long a refused reader waits, in words for the message every adapter shows. */
+function waitText(seconds: number): string {
+  if (seconds < 120) return `${seconds} second${seconds === 1 ? "" : "s"}`;
+  if (seconds < 7_200) return `${Math.ceil(seconds / 60)} minutes`;
+  return `${Math.ceil(seconds / 3_600)} hours`;
+}
+
+function readRefusal(resetAt: number, now: number, message: string): Result<never> {
+  const retryAfterSeconds = Math.max(1, Math.ceil((resetAt - now) / 1000));
+  return {
+    ok: false,
+    code: "rate_limited",
+    message: `${message} Try again in ${waitText(retryAfterSeconds)}.`,
+    retryAfterSeconds,
+  };
+}
+
+/**
+ * Counts one owner-side read or export page against `DATA_OWNER_READS` (decision 0026,
+ * "Owner-side reads"), after authorization so nobody else spends an owner's reads, and before the
+ * object call. The acting account's counter first: a caller over its own minute spends nothing of
+ * the owner's day. Each counter is one atomic upsert in the global database; a refused attempt
+ * stays counted, since it cost a request too.
+ */
+async function countOwnerRead(
+  db: RegionalDb,
+  input: OwnerDataInput,
+  found: Target,
+): Promise<Result<void>> {
+  const d1 = db.global.$client;
+  const actor = await hitRateLimit(
+    d1,
+    `data_read:${input.userId}`,
+    DATA_OWNER_READS.actorWindowMs,
+    input.now,
+  );
+  if (actor.count > DATA_OWNER_READS.perActorPerMinute) {
+    return readRefusal(actor.resetAt, input.now, "Too many reads of artifact data.");
+  }
+  const owner = await hitRateLimit(
+    d1,
+    `data_read_owner:${found.ownerId}`,
+    DATA_OWNER_READS.ownerWindowMs,
+    input.now,
+  );
+  const daily = DATA_OWNER_READS.perDataArtifactPerDay * Math.max(1, found.dataArtifacts);
+  if (owner.count > daily) {
+    return readRefusal(
+      owner.resetAt,
+      input.now,
+      "This space has used its reads of artifact data for the day.",
+    );
+  }
+  return ok(undefined);
+}
+
+/**
+ * A read: authorized, counted (unless it is part of a change or a delete, `counted` false), then
+ * the object, or the empty answer when nothing was ever stored.
+ */
 async function read<T>(
   db: RegionalDb,
   deps: OwnerDataDeps,
@@ -429,9 +489,14 @@ async function read<T>(
   command: OwnerDataCommand,
   empty: () => Result<T>,
   intent: "read" | "export" = "read",
+  counted = true,
 ): Promise<Result<{ value: T; found: Target }>> {
   const found = await target(db, deps, input, intent);
   if (!found.ok) return found;
+  if (counted) {
+    const allowed = await countOwnerRead(db, input, found.value);
+    if (!allowed.ok) return allowed;
+  }
   const row = found.value.row;
   if (row === null) {
     const answer = empty();
@@ -449,8 +514,17 @@ export async function describeArtifactData(
   deps: OwnerDataDeps,
   input: OwnerDataInput,
 ): Promise<Result<DataDescriptionView>> {
+  return describe(db, deps, input, true);
+}
+
+async function describe(
+  db: RegionalDb,
+  deps: OwnerDataDeps,
+  input: OwnerDataInput,
+  counted: boolean,
+): Promise<Result<DataDescriptionView>> {
   const empty = (): Result<DataDescription | null> => ok(null);
-  const result = await read(db, deps, input, { kind: "describe" }, empty);
+  const result = await read(db, deps, input, { kind: "describe" }, empty, "read", counted);
   if (!result.ok) return result;
   const { value, found } = result.value;
   const limits = found.limits;
@@ -494,12 +568,23 @@ export async function getDataDocument(
   deps: OwnerDataDeps,
   input: OwnerDataInput & { collection: string; id: string },
 ): Promise<Result<StoredDocument>> {
+  return getDocument(db, deps, input, true);
+}
+
+async function getDocument(
+  db: RegionalDb,
+  deps: OwnerDataDeps,
+  input: OwnerDataInput & { collection: string; id: string },
+  counted: boolean,
+): Promise<Result<StoredDocument>> {
   const result = await read<StoredDocument>(
     db,
     deps,
     input,
     { kind: "get", collection: input.collection, id: input.id },
     () => fail("not_found", "No such document."),
+    "read",
+    counted,
   );
   return result.ok ? ok(result.value.value) : result;
 }
@@ -509,12 +594,23 @@ export async function queryArtifactData(
   deps: OwnerDataDeps,
   input: OwnerDataInput & { query: DataQuery },
 ): Promise<Result<{ documents: StoredDocument[]; next: string | null }>> {
+  return query(db, deps, input, true);
+}
+
+async function query(
+  db: RegionalDb,
+  deps: OwnerDataDeps,
+  input: OwnerDataInput & { query: DataQuery },
+  counted: boolean,
+): Promise<Result<{ documents: StoredDocument[]; next: string | null }>> {
   const result = await read<{ documents: StoredDocument[]; next: string | null }>(
     db,
     deps,
     input,
     { kind: "query", query: input.query },
     () => noCollection(),
+    "read",
+    counted,
   );
   return result.ok ? ok(result.value.value) : result;
 }
@@ -617,7 +713,8 @@ export async function declareDataCollection(
   if (!result.value.replayed && (result.value.value as { building: number }).building > 0) {
     await buildDataIndexes(db, deps, { ...input, idempotencyKey: `${input.idempotencyKey}:build` });
   }
-  const described = await describeArtifactData(db, deps, input);
+  // Part of the change, not a read the caller asked for: never counted against the read limit.
+  const described = await describe(db, deps, input, false);
   if (!described.ok) return described;
   const collection = described.value.collections.find(
     (item) => item.name === input.declaration.name,
@@ -665,7 +762,7 @@ async function documentAfter(
   if (!written.replayed) return ok(written.value as StoredDocument);
   const target = (written.value as { target?: string }).target ?? "";
   const id = target.slice(target.indexOf("/") + 1);
-  return getDataDocument(db, deps, { ...input, id });
+  return getDocument(db, deps, { ...input, id }, false);
 }
 
 export async function createDataDocument(
@@ -1183,7 +1280,8 @@ export async function deleteAuthorData(
   deps: OwnerDataDeps,
   input: OwnerDataWrite & { author: string },
 ): Promise<Result<{ removed: number; more: boolean }>> {
-  const described = await describeArtifactData(db, deps, input);
+  // A delete: its reads are never counted against the read limit (only its deletes' own rate).
+  const described = await describe(db, deps, input, false);
   if (!described.ok) return described;
   const cutoff = await authorDeleteCutoff(db, input);
   if (!cutoff.ok) return cutoff;
@@ -1192,15 +1290,20 @@ export async function deleteAuthorData(
   for (const collection of described.value.collections) {
     while (true) {
       if (pages >= AUTHOR_DELETE_PAGES) return ok({ removed, more: true });
-      const page = await queryArtifactData(db, deps, {
-        ...input,
-        query: {
-          collection: collection.name,
-          equals: { field: "_by", value: input.author },
-          created: { op: "lte", value: cutoff.value },
-          limit: ARTIFACT_DATA.caps.bulkDocuments,
+      const page = await query(
+        db,
+        deps,
+        {
+          ...input,
+          query: {
+            collection: collection.name,
+            equals: { field: "_by", value: input.author },
+            created: { op: "lte", value: cutoff.value },
+            limit: ARTIFACT_DATA.caps.bulkDocuments,
+          },
         },
-      });
+        false,
+      );
       if (!page.ok) return page;
       const ids = page.value.documents.map((doc) => doc._id);
       if (ids.length === 0) break;

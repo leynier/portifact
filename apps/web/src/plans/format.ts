@@ -176,7 +176,7 @@ export function planSummary(plan: PlanName, locale: string, text: PlanText): Pla
 
 /**
  * A plan's artifact data (decision 0026): how many artifacts may hold data and the size of each.
- * Not a paid feature and not available yet, so its row says it is coming soon.
+ * Not a paid feature: every plan has it, so its row is a plain limit.
  */
 export function formatPlanData(plan: PlanName, locale: string, text: PlanText): string {
   const { artifacts, perArtifact } = PLANS[plan].data;
@@ -206,10 +206,7 @@ export function planComparison(
     })),
     {
       row: "artifactData" as const,
-      label: fill(text["plans.limit.withSoon"], {
-        label: text["plans.limit.artifactData"],
-        soon: text["plans.comingSoon"],
-      }),
+      label: text["plans.limit.artifactData"],
       cells: PLAN_NAMES.map((plan) => ({ plan, value: formatPlanData(plan, locale, text) })),
     },
   ];

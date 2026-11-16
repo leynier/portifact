@@ -117,10 +117,11 @@ export interface PlanDefinition {
 }
 
 /**
- * The starting values of artifact data, option B of decision 0026 ("The plan limits"), confirmed
- * by the maintainer as the starting point; delivery 8 fixes the final numbers from staging. Every
- * plan keeps the record's per-author rates, the per-caller read rate and the rights class.
- * Cleanup equals growth and export is 40 times growth, as in the record's arithmetic.
+ * Artifact data's values: option B of decision 0026 ("The plan limits"), fixed by delivery 8's
+ * measurements ("Delivery 8 measurements"), which lowered Pro's growth and cleanup from 2,000 to
+ * 1,500 rows a day so its measured worst month stays under its price. Every plan keeps the
+ * record's per-author rates, the per-caller read rate and the rights class. Cleanup equals growth
+ * and export is 40 times growth, as in the record's arithmetic.
  */
 const DATA_RATES = {
   writesPerAuthorPerMinute: 30,
@@ -159,9 +160,9 @@ const PRO_DATA: DataPlanLimits = {
     collections: 20,
     indexedFields: 5,
     rowsReadPerDay: 500_000,
-    rowsWrittenPerDay: 2_000,
-    cleanupRowsPerDay: 2_000,
-    exportRowsPerDay: 80_000,
+    rowsWrittenPerDay: 1_500,
+    cleanupRowsPerDay: 1_500,
+    exportRowsPerDay: 60_000,
     liveMessagesPerDay: 5_000,
     connectionsPerArtifact: 10,
   },
@@ -308,6 +309,7 @@ export const AVAILABLE_PLAN_FEATURES = [
   "versionDiff",
   "shareLinks",
   "commentNotices",
+  "webhooks",
   "analytics",
   "branding",
   "workspaces",
@@ -317,6 +319,7 @@ export const AVAILABLE_PLAN_FEATURES = [
   "audit",
   "auditExport",
   "policies",
+  "euResidency",
 ] as const satisfies readonly PlanFeature[];
 
 /** Whether a paid feature works in the product today (`AVAILABLE_PLAN_FEATURES`). */

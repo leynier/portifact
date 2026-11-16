@@ -1410,6 +1410,37 @@ describe("maintenance", () => {
   });
 });
 
+describe("maintenance while streams are switched off", () => {
+  it("still prunes the old log but gives no stream a job (the log's 7 days hold while off)", async () => {
+    const owner = await enterprise();
+    const created = await addStream(owner.actor);
+    await db()
+      .delete(schema.outbox)
+      .where(
+        and(eq(schema.outbox.topic, "audit_stream"), eq(schema.outbox.subject, created.stream.id)),
+      );
+    const values = (at: number) => ({
+      streamId: created.stream.id,
+      ownerId: owner.id,
+      at,
+      outcome: "delivered" as const,
+      events: 1,
+    });
+    await db()
+      .insert(schema.auditStreamDeliveries)
+      .values([values(NOW - 8 * DAY), values(NOW - 6 * DAY)]);
+    const done = await maintainAuditStreams(db(), NOW, { arm: false });
+    expect(done.armed).toBe(0);
+    expect(done.prunedDeliveries).toBeGreaterThanOrEqual(1);
+    expect(await jobOf(created.stream.id)).toBeUndefined();
+    const left = await db()
+      .select()
+      .from(schema.auditStreamDeliveries)
+      .where(eq(schema.auditStreamDeliveries.streamId, created.stream.id));
+    expect(left.map((row) => row.at)).toEqual([NOW - 6 * DAY]);
+  });
+});
+
 describe("what goes with the owner", () => {
   it("lists streams in the account export without URL, secret or position", async () => {
     const owner = await enterprise();
