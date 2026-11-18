@@ -1,6 +1,6 @@
 # 0005 Regions and EU data residency
 
-- Status: proposed (spike S4 of the paid plans programme; blocks F3's region column and resolver and E5)
+- Status: accepted (spike S4 of the paid plans programme); F3's region column and resolver and E5 are built, the deployed Workers bind the EU region, and the legal pages describe EU data residency as available since version 2026-11-17
 - Date: 2026-11-09
 - Spike: [spikes/regions](../../spikes/regions)
 

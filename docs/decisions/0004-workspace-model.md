@@ -1,6 +1,6 @@
 # 0004 Workspace model: own tables, Better Auth for identity and SSO sign-in
 
-- Status: proposed
+- Status: accepted; built as F3 and the Teams plan's workspaces (T1), in production since v0.25.0
 - Date: 2026-11-10
 - Spike: [spikes/workspace-model](../../spikes/workspace-model) (S1 of the paid-plans plan)
 
