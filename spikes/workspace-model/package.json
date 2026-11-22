@@ -10,18 +10,18 @@
     "test": "vitest run --coverage"
   },
   "dependencies": {
-    "@better-auth/scim": "1.7.22",
-    "@better-auth/sso": "1.7.22",
+    "@better-auth/scim": "1.7.26",
+    "@better-auth/sso": "1.7.26",
     "@portifact/contracts": "workspace:*",
     "@portifact/db": "workspace:*",
     "@portifact/domain": "workspace:*",
-    "better-auth": "1.7.22",
+    "better-auth": "1.7.26",
     "drizzle-orm": "^0.45.0",
     "samlify": "2.15.1"
   },
   "devDependencies": {
-    "@cloudflare/vitest-plugin": "^1.8.1",
-    "@cloudflare/workers-types": "^5.20261113.1",
+    "@cloudflare/vitest-plugin": "^1.8.5",
+    "@cloudflare/workers-types": "^5.20261119.1",
     "@types/node": "catalog:",
     "@vitest/coverage-istanbul": "catalog:",
     "esbuild": "0.28.2",
