@@ -15,13 +15,13 @@
     "@portifact/domain": "workspace:*"
   },
   "devDependencies": {
-    "@cloudflare/vitest-plugin": "^1.8.1",
-    "@cloudflare/workers-types": "^5.20261113.1",
+    "@cloudflare/vitest-plugin": "^1.8.5",
+    "@cloudflare/workers-types": "^5.20261119.1",
     "@portifact/db": "workspace:*",
     "@portifact/services": "workspace:*",
     "@vitest/coverage-istanbul": "catalog:",
     "drizzle-orm": "^0.45.0",
-    "fast-check": "^4.0.0",
+    "fast-check": "^4.10.3",
     "typescript": "catalog:",
     "vitest": "catalog:",
     "wrangler": "^4.0.0"

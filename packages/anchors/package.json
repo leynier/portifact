@@ -21,7 +21,7 @@
     "@stryker-mutator/vitest-runner": "catalog:",
     "@types/node": "catalog:",
     "@vitest/coverage-istanbul": "catalog:",
-    "fast-check": "^4.0.0",
+    "fast-check": "^4.10.3",
     "happy-dom": "^21.0.4",
     "typescript": "catalog:",
     "vitest": "catalog:"

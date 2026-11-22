@@ -21,7 +21,7 @@
     "@portifact/contracts": "workspace:*",
     "@portifact/domain": "workspace:*",
     "@portifact/ui": "workspace:*",
-    "@tanstack/react-query": "^5.107.1",
+    "@tanstack/react-query": "^5.108.0",
     "@tanstack/react-router": "^1.130.0",
     "fflate": "^0.8.2",
     "lucide-react": "catalog:",

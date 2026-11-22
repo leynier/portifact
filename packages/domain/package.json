@@ -33,7 +33,7 @@
     "@types/css-tree": "catalog:",
     "@types/node": "catalog:",
     "@vitest/coverage-istanbul": "catalog:",
-    "fast-check": "^4.0.0",
+    "fast-check": "^4.10.3",
     "happy-dom": "catalog:",
     "typescript": "catalog:",
     "vitest": "catalog:"
